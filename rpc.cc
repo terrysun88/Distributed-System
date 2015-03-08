@@ -101,7 +101,7 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    int i =0;
    while (argTypes[i] != NULL) i++;
    i++;
-   //Assume length: type= 16; server address=40;port=4;name=20
+   //Assume length: type= 18; server address=40;port=4;name=20
    length=4+TYPE_LEN+ADDRESS_LEN+PORT_LEN+NAME_LEN+i*sizeof(int);
    //compose the message
    /*Message format: 
@@ -133,10 +133,15 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
       cout << "Registration Failed: Unable to send" << endl;
       return -2; //for now, need to change later
    } 
-   //
+   //check the repley from binder
+   char buf[18];
+   status = recv(s, buf, 18, 0);
+   if (strcmp(buf,"REGISTER_SUCCESS") == 0) return 0;
+   else return -2; //for now, need to change later
 }
 
-int rpcExecute(){
+int rpcExecute() {
+   
 }
 
 int rpcCall(char* name, int* argTypes, void** args) {
@@ -165,7 +170,8 @@ int rpcCall(char* name, int* argTypes, void** args) {
 
 }
 
-int rpcTerminate(){
+int rpcTerminate() {
+   
 }
 
 
