@@ -17,7 +17,7 @@ extern "C" {
 #define ARG_INPUT   31
 #define ARG_OUTPUT  30
 //Length Assumption
-#define TYPE_LEN 16
+#define TYPE_LEN 18
 #define ADDRESS_LEN 40
 #define PORT_LEN 4
 #define NAME_LEN 20
