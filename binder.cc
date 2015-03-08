@@ -24,18 +24,49 @@ void error(string s) {
     exit(1);
 }
 
-
-
-void handleAllRequest(int fd, fd_set *readfds) {
+void server_register() {
     
+}
+
+void handleLocRequest() {
+    
+}
+
+void terminateRequest() {
+    
+}
+
+void handleAllRequest(int fd) {
+    char buff[22];
+    memset(&buff, 0, sizeof(buff));
+    int res = (int)recv(fd, buff, sizeof(buff), 0);
+    if (res < 0) {
+        error("FAILED to receive len & MSG_TYPE");
+    }
+    
+    int len;
+    string MSG_TYPE;
+    memcpy(&len, &buff, 4);
+    memcpy(&MSG_TYPE, &buff[4], 18);
+    
+    if (MSG_TYPE == "REGISTER")
+        server_register();
+    else if (MSG_TYPE == "local")
+        handleLocRequest();
+    else if (MSG_TYPE == "")
+        error(""); //need to modified
+    else if (MSG_TYPE == "TERMINATE")
+        terminateRequest();
+    else {
+        error("receiving incorrect request!");
+    }
 }
 
 int main() {
     int localSocket, port, res;
     struct sockaddr_in binder_addr, cur_addr;
-    char binder_address[1024];
+    char binder_address[256];
     fd_set workfds, readfds;
-    binder_address[1023] = '\0';
     
     localSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (localSocket < 0) {
@@ -70,7 +101,7 @@ int main() {
     FD_SET(localSocket, &readfds);
     
     while (!terminal_signal) {
-        //int nread;
+        int nread;
         memcpy(&workfds, &readfds, sizeof(readfds));
         
         res = select(fd_size + 1, &workfds, NULL, NULL, NULL);
@@ -94,7 +125,14 @@ int main() {
                     fd_size += 1;
                 }
                 else {
-                    handleAllRequest(fd, &readfds);
+                    ioctl(nread, FIONREAD, &readfds);
+                    if (nread == 0) {
+                        close(fd);
+                        FD_CLR(fd, &readfds);
+                    }
+                    else {
+                        handleAllRequest(fd);
+                    }
                 }
             }
         }
