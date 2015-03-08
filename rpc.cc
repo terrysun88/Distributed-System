@@ -52,7 +52,10 @@ int rpcInit() {
    server_binder_s = socket(servinfo->ai_family, servinfo->ai_socktype, 
                      servinfo->ai_protocol);
    status = connect(server_binder_s, servinfo->ai_addr, servinfo->ai_addrlen);
-   if (status == -1) cout << "connection to Binder failed: " << errno << endl;
+   if (status == -1) {
+      cout << "connection to Binder failed: " << errno << endl;
+      return -2; //for now, need to change later
+   }
    
 //create a connection socket to be used for accepting connections from clients.
    memset(&hints, 0, sizeof hints); // make sure the struct is empty
@@ -91,10 +94,46 @@ int rpcInit() {
 int rpcRegister(char* name, int* argTypes, skeleton f) {
    int bytes_sent;
    string tmp;
-   int status,s;
+   int status,s,length;
    s=server_binder_s;
+   char type[]="REGISTER";
    //prepare the message
-   
+   int i =0;
+   while (argTypes[i] != NULL) i++;
+   i++;
+   //Assume length: type= 16; server address=40;port=4;name=20
+   length=4+TYPE_LEN+ADDRESS_LEN+PORT_LEN+NAME_LEN+i*sizeof(int);
+   //compose the message
+   /*Message format: 
+      length: int
+      type: char[]
+      address: char[]
+      port: int
+      name: char[]
+      argTypes: int[]
+   */
+   int offset = 0 ;
+   char msg[length];
+   memset(msg,0,sizeof(msg));
+   memcpy(&msg[offset],&length,4);
+   offset+=4;
+   memcpy(&msg[offset],type,TYPE_LEN);
+   offset+=TYPE_LEN;
+   memcpy(&msg[offset],hostname,ADDRESS_LEN);
+   offset+=ADDRESS_LEN;
+   memcpy(&msg[offset],&portnum,PORT_LEN);
+   offset+=PORT_LEN;
+   memcpy(&msg[offset],name,NAME_LEN);
+   offset+=NAME_LEN;
+   memcpy(&msg[offset],argTypes,i*sizeof(int));
+   offset+=i*sizeof(int);
+   //send the message to binder
+   bytes_sent = send(s, msg, length, 0);
+   if (bytes_sent == -1) {
+      cout << "Registration Failed: Unable to send" << endl;
+      return -2; //for now, need to change later
+   } 
+   //
 }
 
 int rpcExecute(){
@@ -117,7 +156,11 @@ int rpcCall(char* name, int* argTypes, void** args) {
    s = socket(servinfo->ai_family, servinfo->ai_socktype, 
                      servinfo->ai_protocol);
    status = connect(s, servinfo->ai_addr, servinfo->ai_addrlen);
-   if (status == -1) cout << "connection to Binder failed: " << errno << endl;
+   if (status == -1) {
+      cout << "connection to Binder failed: " << errno << endl;
+      return -2; //for now, need to change later
+   }
+   
    
 
 }

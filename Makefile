@@ -17,9 +17,12 @@ EXEC1 = server				# 1st executable name
 OBJECTS2 = client1.o	rpc.o			# object files forming 2nd executable
 EXEC2 = client					# 2nd executable name
 
-OBJECTS = ${OBJECTS1} ${OBJECTS2}		# all object files
+OBJECTS3 = binder.o	rpc.o			# object files forming 3rd executable
+EXEC3 = binder					# 3rd executable name
+
+OBJECTS = ${OBJECTS1} ${OBJECTS2} ${OBJECTS3}		# all object files
 DEPENDS = ${OBJECTS:.o=.d}			# substitute ".o" with ".d"
-EXECS = ${EXEC1} ${EXEC2}			# all executables
+EXECS = ${EXEC1} ${EXEC2}	${EXEC3}		# all executables
 
 ########## Targets ##########
 
@@ -31,6 +34,9 @@ ${EXEC1} : ${OBJECTS1}				# link step 1st executable
 	${CXX} ${CXXFLAGS} $^ -o $@		# additional object files before $^
 
 ${EXEC2} : ${OBJECTS2}				# link step 2nd executable
+	${CXX} ${CXXFLAGS} $^ -o $@		# additional object files before $^
+	
+${EXEC3} : ${OBJECTS3}				# link step 3rd executable
 	${CXX} ${CXXFLAGS} $^ -o $@		# additional object files before $^
 
 ${OBJECTS} : ${MAKEFILE_NAME}			# OPTIONAL : changes to this file => recompile
