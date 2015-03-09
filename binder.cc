@@ -16,16 +16,92 @@
 
 using namespace std;
 
+
 // terminal signal
 bool terminal_signal = false;
+
+struct serverInfo {
+    string server_addr;
+    int port;
+    
+    void create_info(string addr, int p) {
+        server_addr = addr;
+        port = p;
+    }
+};
+
+static map <pair<string, int*>, vector<struct serverInfo> > procedure_db;
+
+pair<string, int*> create_key(string name, int* args) {
+    pair<string, int*> key;
+    key.first = name;
+    key.second = args;
+    return key;
+}
 
 void error(string s) {
     cerr << s << endl;
     exit(1);
 }
 
-void server_register() {
+
+
+int addServerService(string hostname, int server_port, string funcName, int* args) {
+    // creating key which is formed by  function name and args type
+    pair<string, int*> key = create_key(funcName, args);
     
+    // create service location to correspounding hostname and port number
+    struct serverInfo location;
+    location.create_info(hostname, server_port);
+    
+    
+    return 0;
+}
+
+void server_register(int len, int fd) {
+
+    bool resigter_success = true;
+    char msg_buff[len]; // receive msg from server request
+    memset(&msg_buff, 0, sizeof(msg_buff));
+
+    int res = (int) recv(fd, msg_buff, sizeof(msg_buff), 0);
+    if (res < 0) {
+        resigter_success = false;
+        cerr << "FAILED to receive msg from server request" << endl;
+    }
+    
+    string hostname, funcName;
+    int server_port, offset = 0;
+    // get hostname from msg
+    memcpy(&hostname, msg_buff, 40);
+    offset += 40;
+    // get port number from msg
+    memcpy(&server_port, &msg_buff[offset], 4);
+    offset += 4;
+    // get function name from msg
+    memcpy(&funcName, &msg_buff[offset], 20);
+    offset += 20;
+    
+    // compute the number of arguments
+    int args_size = len - 64;
+    int args_num = args_size/4;
+    
+    int args[args_num];
+    memcpy(args, &msg_buff[offset], args_size);
+    
+    res = addServerService(hostname, server_port, funcName, args);
+
+    if (res < 0) {
+        resigter_success = false;
+    }
+    
+    if (resigter_success) {
+        // send REGISTER_SUCCESS
+    }
+    
+    else {
+        // send REGISTER_FAILURE
+    }
 }
 
 void handleLocRequest() {
@@ -46,12 +122,13 @@ void handleAllRequest(int fd) {
     
     int len;
     string MSG_TYPE;
-    memcpy(&len, &buff, 4);
+    memcpy(&len, buff, 4);
+    len -= 22; // msg size that include hostname, portNum, funcName and argsType
     memcpy(&MSG_TYPE, &buff[4], 18);
     
     if (MSG_TYPE == "REGISTER")
-        server_register();
-    else if (MSG_TYPE == "local")
+        server_register(len, fd);
+    else if (MSG_TYPE == "LOC_REQUEST")
         handleLocRequest();
     else if (MSG_TYPE == "")
         error(""); //need to modified
