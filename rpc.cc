@@ -120,7 +120,10 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    //check the repley from binder
    char buf[18];
    status = recv(s, buf, 18, 0);
-   if (strcmp(buf,"REGISTER_SUCCESS") == 0) return 0;
+   if (strcmp(buf,"REGISTER_SUCCESS") == 0) {
+      cout << "REGISTER_SUCCESS" << endl;
+      return 0;
+   }
    else return -2; //for now, need to change later
 }
 
