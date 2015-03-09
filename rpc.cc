@@ -233,6 +233,8 @@ int rpcTerminate() {
    memcpy(&msg,&length,4);
    memcpy(&msg[4],type,TYPE_LEN);
    int bytes_sent = send(s, msg, length, 0);
+   close(s);
+   return 0;
 }
 
 
