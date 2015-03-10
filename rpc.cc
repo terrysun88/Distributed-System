@@ -19,6 +19,8 @@ using namespace std;
 uint16_t portnum;
 char hostname[50];
 int server_binder_s,server_client_s;
+int *pool = new int[20];
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int rpcInit() {
 //open a connection to the binder
@@ -138,24 +140,58 @@ void* checkterm (void *flag) {
    if (strcmp(buf,"TERMINATE") == 0) {
       bool f=false;
       memcpy(&flag,&f,sizeof(bool));
-   }
+   } else
+      cerr << "Binder sending crazy msg to Server Poi~" << endl;
+}
+
+void* Execute (void *val) {
+   int s=*(int*)val;
+   //recv from client
+   
+   //invoke the function
+   
+   //send result back
+   
+   //clean up
+   
+   
+   pthread_mutex_lock(&mutex);
+   int i = 0;
+   while (pool[i] != s) i++;
+   pool[i] = NULL;
+   pthread_mutex_unlock(&mutex);
+   close(s);
 }
 
 int rpcExecute() {
    pthread_t thread1;
    int ret1;
    bool flag = true;
-   ret1 = pthread_create( &thread1, NULL, checkterm, (void *)&flag);
+   ret1 = pthread_create(&thread1, NULL, checkterm, (void *)&flag);
    if(ret1) {
       fprintf(stderr,"Error - pthread_create() return code: %d\n",ret1);
       exit(EXIT_FAILURE);
    }
-   
    struct sockaddr_storage their_addr;
    socklen_t addr_size;
    int s_new,status,bytes_sent;
-   listen(server_client_s,100);
-   s_new = accept(server_client_s, (struct sockaddr *)&their_addr, &addr_size);
+   //support up to 20 clients
+   listen(server_client_s,20);
+   while (flag) {
+      int i = 0;
+      int s_new = accept(server_client_s, (struct sockaddr *)&their_addr, &addr_size);
+      pthread_t thread2;
+      pthread_mutex_lock(&mutex);
+      while (pool[i] != NULL) i++;
+      pool[i]=s_new;
+      int ret2 = pthread_create(&thread2, NULL, Execute, (void *)&pool[i]);
+      if(ret2) {
+        fprintf(stderr,"Error - pthread_create() return code: %d\n",ret1);
+        exit(EXIT_FAILURE);
+      }
+      pthread_mutex_unlock(&mutex);
+   }
+   delete [] pool;
    /*
    char call[20];
    status = recv(s_new, call, 20, 0);
