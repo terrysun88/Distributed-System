@@ -30,10 +30,23 @@ int recv_repley(int fd) {
    cout << "actual: " << status << endl;
    status = recv(fd, buf, len-4, 0);
    char type[18];
+   char server_addr[40];
+   int server_port;
    memcpy(type,buf,18);
    printf("type: %s\n",type);
-   strcpy(type,"REGISTER_SUCCESS");
-   bytes_sent = send(fd, type, 18, 0);
+   if (strcmp(type,"REGISTER") == 0) {
+      strcpy(type,"REGISTER_SUCCESS");
+      memcpy(server_addr,&buf[18],40);
+      memcpy(&server_port,&buf[58],4);
+   } else if (strcmp(type,"LOC_REQUEST") == 0) strcpy(type,"LOC_SUCCESS");
+   int length=4+18+40+4;
+   char msg[length];
+   memset(msg,0,sizeof(msg));
+   memcpy(msg,&length,4);
+   memcpy(&msg[4],type,18);
+   memcpy(&msg[22],server_addr,40);
+   memcpy(&msg[62],&server_port,4);
+   bytes_sent = send(fd, msg, length, 0);
 }
 
 int main() {

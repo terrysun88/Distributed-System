@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <sys/utsname.h>
 #include "rpc.h"
+#include <sstream>
 
 
 using namespace std;
@@ -69,8 +70,7 @@ int rpcInit() {
    else
       //printf("SERVER_PORT %d\n", ntohs(sin.sin_port));
       portnum=ntohs(sin.sin_port);
-   //max 100 clients
-   listen(server_client_s,100);
+   cout << "SERVER_PORT " << portnum << endl;
    freeaddrinfo(servinfo);
    return 0;
 }
@@ -128,6 +128,18 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
 }
 
 int rpcExecute() {
+   struct sockaddr_storage their_addr;
+   socklen_t addr_size;
+   int s_new,status,bytes_sent;
+   listen(server_client_s,100);
+   s_new = accept(server_client_s, (struct sockaddr *)&their_addr, &addr_size);
+   /*
+   char call[20];
+   status = recv(s_new, call, 20, 0);
+   cout << "message from client: " << call << endl;
+   strcpy(call,"Damn it!");
+   bytes_sent = send(s_new, call, 20, 0);*/
+   
    
 }
 
@@ -203,6 +215,36 @@ int rpcCall(char* name, int* argTypes, void** args) {
    //close client's connection to binder
    close(s);
 //connect to the server
+   cout << "Address: " << server_addr << endl << "Port: " << server_port << endl;
+   //convert int port to string
+   char server_portnum[8];
+   string tmp;
+   ostringstream convert;
+   convert << server_port;
+   tmp = convert.str();
+   strcpy(server_portnum,tmp.c_str());
+   memset(&hints, 0, sizeof hints); // make sure the struct is empty
+   hints.ai_family = AF_UNSPEC; // don't care IPv4 or IPv6
+   hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+   // get ready to connect
+   status = getaddrinfo(server_addr, server_portnum, &hints, &servinfo);
+   // servinfo now points to a linked list of 1 or more struct addrinfos
+   //create socket and connect
+   s = socket(servinfo->ai_family, servinfo->ai_socktype, 
+                     servinfo->ai_protocol);
+   status = connect(s, servinfo->ai_addr, servinfo->ai_addrlen);
+   if (status == -1) {
+      cout << "connection to Server failed: " << errno << endl;
+      return -2; //for now, need to change later
+   }
+//send request to server
+   /*
+   char call[]="Hello World";
+   bytes_sent = send(s, call, 20, 0);
+   status = recv(s, call, 20, 0);
+   cout << "message from server: " << call << endl;*/
+   
+   close(s);
 }
 
 int rpcTerminate() {
