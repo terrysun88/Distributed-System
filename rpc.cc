@@ -127,7 +127,30 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    else return -2; //for now, need to change later
 }
 
+void* checkterm (void *flag) {
+   int status,length;
+   int s=server_binder_s;
+   char temp[4];
+   status = recv(s, temp, 4, 0);
+   memcpy(&length,temp,4);
+   char buf[length-4];
+   status = recv(s, buf, length-4, 0);
+   if (strcmp(buf,"TERMINATE") == 0) {
+      bool f=false;
+      memcpy(&flag,&f,sizeof(bool));
+   }
+}
+
 int rpcExecute() {
+   pthread_t thread1;
+   int ret1;
+   bool flag = true;
+   ret1 = pthread_create( &thread1, NULL, checkterm, (void *)&flag);
+   if(ret1) {
+      fprintf(stderr,"Error - pthread_create() return code: %d\n",ret1);
+      exit(EXIT_FAILURE);
+   }
+   
    struct sockaddr_storage their_addr;
    socklen_t addr_size;
    int s_new,status,bytes_sent;
