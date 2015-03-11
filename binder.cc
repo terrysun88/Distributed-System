@@ -34,11 +34,11 @@ struct serverInfo {
     }
 };
 
-static map <pair<string, int*>, vector<struct serverInfo> > procedure_db;
-static vector<struct serverInfo> roundRobin_list;
+map <pair<string, vector<int> >, vector<struct serverInfo> > procedure_db;
+vector<struct serverInfo> roundRobin_list;
 
-pair<string, int*> create_key(string name, int* args) {
-    pair<string, int*> key;
+pair<string, vector<int> > create_key(string name, vector<int> args) {
+    pair<string, vector<int> > key;
     key.first = name;
     key.second = args;
     return key;
@@ -52,15 +52,25 @@ void error(string s) {
 
 // checking existing service, if current service exist in the database, return the service.
 // if not return a "not_exist" service
-pair<string, int*> service_search(pair<string, int*> key) {
-    map <pair<string, int*>, vector<struct serverInfo> >::iterator it;
+pair<string, vector<int> > service_search(pair<string, vector<int> > key) {
+    map <pair<string, vector<int> >, vector<struct serverInfo> >::iterator it;
     for (it = procedure_db.begin(); it != procedure_db.end(); ++it) {
-        pair<string, int*> tmp = it->first;
-        if (sizeof(key.second) == sizeof(tmp.second)) {
+        pair<string, vector<int> > tmp = it->first;
+        if (key.first == tmp.first && key.second.size() == tmp.second.size()) {
             bool same = true;
-            for (int i = 0; i < sizeof(key.second); i++) {
-                if (key.second[i] != tmp.second[i]) {
+            for (int i = 0; i < key.second.size(); i++) {
+                if (key.second[i] >> 16 != tmp.second[i] >> 16) {
                     same = false;
+                    break;
+                }
+                else {
+                    short len1 = key.second[i];
+                    short len2 = tmp.second[i];
+                    if ((len1 == 0 && len2 > 0) || (len1 > 0 && len2 == 0)) {
+                        same = false;
+                        break;
+                    }
+
                 }
             }
             if (same) {
@@ -68,14 +78,14 @@ pair<string, int*> service_search(pair<string, int*> key) {
             }
         }
     }
-    pair<string, int*> not_exist;
+    pair<string, vector<int> > not_exist;
     not_exist.first = "not_exist";
     return not_exist;
 }
 
 bool server_check(vector<struct serverInfo> service_list, struct serverInfo loc2) {
     bool exist = false;
-    for (int i = 0; i < sizeof(service_list); i++) {
+    for (int i = 0; i < service_list.size(); i++) {
         struct serverInfo loc1 = service_list[i];
         if (loc1.server_addr == loc2.server_addr && loc1.port == loc2.port) {
             exist = true;
@@ -85,17 +95,17 @@ bool server_check(vector<struct serverInfo> service_list, struct serverInfo loc2
     return exist;
 }
 
-int addServerService(string hostname, int server_port, string funcName, int* args) {
+int addServerService(string hostname, int server_port, string funcName, vector<int> args) {
     try {
         // creating key which is formed by  function name and args type
-        pair<string, int*> key = create_key(funcName, args);
+        pair<string, vector<int> > key = create_key(funcName, args);
     
         // create service location to correspounding hostname and port number
         struct serverInfo location;
         location.create_info(hostname, server_port);
 
         // no any server exist for the request service
-        pair<string, int*> exist_key = service_search(key);
+        pair<string, vector<int> > exist_key = service_search(key);
         if (exist_key.first == "not_exist") {
             // store location into procedure database
             procedure_db[key].push_back(location);
@@ -153,13 +163,16 @@ void server_register(int len, int fd) {
         offset += NAME_LEN;
     
         // compute the number of arguments
-        int args_size = len - ADDRESS_LEN - NAME_LEN;
+        int args_size = len - ADDRESS_LEN - PORT_LEN - NAME_LEN;
         int args_num = args_size/4;
     
         int args[args_num];
         memcpy(args, &msg_buff[offset], args_size);
-    
-        res = addServerService(hostname, server_port, funcName, args);
+        vector<int> args_list;
+        for (int i = 0; i < args_num; i++) {
+            args_list.push_back(args[i]);
+        }
+        res = addServerService(hostname, server_port, funcName, args_list);
 
         if (res < 0) {
         register_success = false;
@@ -216,12 +229,15 @@ void handleLocRequest(int len, int fd) {
         // collect args type from message
         int args[args_num];
         memcpy(args, &msgBuff[20], args_size);
-        
+        vector<int> args_list;
+        for (int i = 0; i < args_num; i++) {
+            args_list.push_back(args[i]);
+        }
         // create requesting key by client
-        pair<string, int*> key = create_key(funcName, args);
+        pair<string, vector<int> > key = create_key(funcName, args_list);
         
         // figure out if the key exist in procedure_db
-        pair<string, int*> db_key = service_search(key);
+        pair<string, vector<int> > db_key = service_search(key);
         
         if (db_key.first == "not_exist") {
             loc_success = false;
@@ -254,10 +270,8 @@ int handleAllRequest(int fd) {
     int len;
     char MSG_TYPE[18];
     memcpy(&len, buff, 4);
-    cout << len << endl;
     len -= 22; // msg size that include hostname, portNum, funcName and argsType
     memcpy(MSG_TYPE, &buff[4], 18);
-    cout << MSG_TYPE << endl;
     if (strcmp(MSG_TYPE, "REGISTER") == 0)
         server_register(len, fd);
     else if (strcmp(MSG_TYPE, "LOC_REQUEST") == 0)
