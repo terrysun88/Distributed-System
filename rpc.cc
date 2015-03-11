@@ -12,6 +12,7 @@
 #include "rpc.h"
 #include <sstream>
 #include <map>
+#include <vector>
 
 using namespace std;
 
@@ -22,6 +23,25 @@ int server_binder_s,server_client_s;
 int *pool = new int[20];
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 map<char*,skeleton> record;
+vector<skeleton> rec;
+
+//return size of each type
+int argsizebytes(int argtype) {
+   switch (argtype) {
+   case 1:
+      return sizeof(char);
+   case 2:
+      return sizeof(short);
+   case 3:
+      return sizeof(int);
+   case 4:
+      return sizeof(long);
+   case 5:
+      return sizeof(double);
+   case 6:
+      return sizeof(float);
+   }
+}
 
 /*###################################################################
 int rpcInit();
@@ -92,11 +112,11 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    int status,s,length;
    s=server_binder_s;
    //prepare the message
-   char type[18];
+   char type[TYPE_LEN];
    int i =0;
    record.insert(pair <char*,skeleton> (name,f));
-   while (argTypes[i] != NULL) i++;
-   i++;
+   rec.push_back(f);
+   while (argTypes[i] != 0) i++;
    //Assume length: type= 18; server address=40;port=4;name=20
    length=4+TYPE_LEN+ADDRESS_LEN+PORT_LEN+NAME_LEN+i*sizeof(int);
    //compose the message
@@ -136,7 +156,7 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    memset(buf,0,26);
    status = recv(s, buf, 26, 0);
    memset(type,0,TYPE_LEN);
-   memcpy(type,&buf[4],18);
+   memcpy(type,&buf[4],TYPE_LEN);
    memcpy(&errorcode,&buf[22],4);
    if (strcmp(type,"REGISTER_SUCCESS") == 0) {
       cout << "REGISTER_SUCCESS" << endl;
@@ -168,8 +188,52 @@ void* checkterm (void *flag) {
 
 void* Execute (void *val) {
    int s=*(int*)val;
+   int status,bytes_sent,length,argsnum;
+   char name[NAME_LEN];
+   char type[TYPE_LEN];
    //recv from client
-   
+   char temp[4];
+   status = recv(s, &length, 4, 0);
+   if (status == -1) {
+      cout << "Server from Client failed: " << errno << endl;
+      errno=-2; //for now, need to change later
+   }
+   char fncall[length-4];
+   memset(fncall,0,length-4);
+   status = recv(s, fncall, length-4, 0);
+   if (status == -1) {
+      cout << "Server from Client failed: " << errno << endl;
+      errno=-2; //for now, need to change later
+   }
+   memcpy(type,fncall,TYPE_LEN);
+   if (strcmp(type,"EXECUTE") == 0) {
+      int offset=TYPE_LEN;
+      memcpy(name,&fncall[offset],NAME_LEN);
+      offset+=NAME_LEN;
+      memcpy(&argsnum,&fncall[offset],4);
+      offset+=4;
+      int argTypes[argsnum];
+      void *args[argsnum];
+      memcpy(argTypes,&fncall[offset],argsnum*sizeof(int));
+      offset+=argsnum*sizeof(int);
+      for (int i =0; i < argsnum; i++) {
+         int size = argTypes[i] & 65535;
+         cout << "size: " << size << endl;
+         int argtype = (argTypes[i]>>16) & 255;
+         cout << "argtype: " << argtype << endl;
+         if (size < 1) size=1;
+         int bytesize = size*argsizebytes(argtype);
+         char *temp = new char[bytesize];
+         memcpy(temp,&fncall[offset],bytesize);
+         offset+=bytesize;
+         args[i]=(void*)temp;
+      }
+      cout << name << endl;
+      skeleton f = rec[0];
+      f(argTypes,args);
+      cout << "Evaluate: " << *((int *)(args[0])) << endl;
+   }
+      
    //invoke the function
    
    //send result back
@@ -220,31 +284,11 @@ int rpcExecute() {
    cout << "message from client: " << call << endl;
    strcpy(call,"Damn it!");
    bytes_sent = send(s_new, call, 20, 0);*/
-   
-   
 }
 
 /*###################################################################
 int rpcCall(char* name, int* argTypes, void** args)
 #####################################################################*/
-
-int argsize(int argtype) {
-   switch (argtype) {
-   case 1:
-      return sizeof(char);
-   case 2:
-      return sizeof(short);
-   case 3:
-      return sizeof(int);
-   case 4:
-      return sizeof(long);
-   case 5:
-      return sizeof(double);
-   case 6:
-      return sizeof(float);
-   }
-}
-
 
 int rpcCall(char* name, int* argTypes, void** args) {
 //open a connection to the binder
@@ -271,10 +315,10 @@ int rpcCall(char* name, int* argTypes, void** args) {
    }
 //send LOC_REQUEST to binder
    //prepare the message
-   char type[]="LOC_REQUEST";
+   char type[TYPE_LEN];
+   strcpy(type,"LOC_REQUEST");
    int i =0;
-   while (argTypes[i] != NULL) i++;
-   i++;
+   while (argTypes[i] != 0) i++;
    //Assume length: type= 18; server address=40;port=4;name=20
    int length=4+TYPE_LEN+NAME_LEN+i*sizeof(int);
    //compose the message
@@ -348,10 +392,10 @@ int rpcCall(char* name, int* argTypes, void** args) {
    cout << "message from server: " << call << endl;*/
    //prepare the message
    //calculate the length of message
+   strcpy(type,"EXECUTE");
    length = 0;
    int argnum = 0;
    while (argTypes[argnum] != 0) argnum++;
-   argnum++;
    //msg len+type len+ name len + argsnum;
    length=4+TYPE_LEN+NAME_LEN+4;
    //add size of argTypes
@@ -362,25 +406,30 @@ int rpcCall(char* name, int* argTypes, void** args) {
       int size = argTypes[i] & 65535;
       cout << "size: " << size << endl;
       int argtype = (argTypes[i]>>16) & 255;
-      if (argtype == 0) argtype=1;
-      argsize[i]=size*argtype;
+      cout << "argtype: " << argtype << endl;
+      if (size < 1) size=1;
+      argsize[i]=size*argsizebytes(argtype);
       length+=argsize[i];
    }
    char fncall[length];
+   memset(fncall,0,sizeof(fncall));
    //compose the message
    offset=0;
    memcpy(&fncall[offset],&length,4);
    offset+=4;
    memcpy(&fncall[offset],type,TYPE_LEN);
    offset+=TYPE_LEN;
-   memcpy(&fncall[offset],name,NAME_LEN);
+   memcpy(&fncall[offset],name,sizeof(name)+1);
    offset+=NAME_LEN;
+   memcpy(&fncall[offset],&argnum,sizeof(int));
+   offset+=4;
    memcpy(&fncall[offset],argTypes,argnum*sizeof(int));
    offset+=argnum*sizeof(int);
    for (int i = 0; i < argnum; i++) {
       memcpy(&fncall[offset],args[i],argsize[i]);
       offset+=argsize[i];
    }
+   
    //send the message
    bytes_sent = send(s, fncall, length, 0);
    if (bytes_sent == -1) {
@@ -388,8 +437,9 @@ int rpcCall(char* name, int* argTypes, void** args) {
       return -2; //for now, need to change later
    } 
    //waiting for the repley
-   
+   status = recv(s, fncall, length, 0);
    close(s);
+   return 0;
 }
 
 /*###################################################################
