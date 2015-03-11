@@ -138,7 +138,7 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    memset(type,0,TYPE_LEN);
    memcpy(type,&buf[4],18);
    memcpy(&errorcode,&buf[22],4);
-   if (strcmp(buf,"REGISTER_SUCCESS") == 0) {
+   if (strcmp(type,"REGISTER_SUCCESS") == 0) {
       cout << "REGISTER_SUCCESS" << endl;
       return errorcode;
    } else {
@@ -381,6 +381,14 @@ int rpcCall(char* name, int* argTypes, void** args) {
       memcpy(&fncall[offset],args[i],argsize[i]);
       offset+=argsize[i];
    }
+   //send the message
+   bytes_sent = send(s, fncall, length, 0);
+   if (bytes_sent == -1) {
+      cout << "Client to Server Failed: Unable to send" << endl;
+      return -2; //for now, need to change later
+   } 
+   //waiting for the repley
+   
    close(s);
 }
 
