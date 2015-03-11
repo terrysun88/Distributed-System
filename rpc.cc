@@ -11,7 +11,7 @@
 #include <sys/utsname.h>
 #include "rpc.h"
 #include <sstream>
-
+#include <map>
 
 using namespace std;
 
@@ -21,6 +21,11 @@ char hostname[50];
 int server_binder_s,server_client_s;
 int *pool = new int[20];
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+map<char*,skeleton> record;
+
+/*###################################################################
+int rpcInit();
+#####################################################################*/
 
 int rpcInit() {
 //open a connection to the binder
@@ -77,14 +82,19 @@ int rpcInit() {
    return 0;
 }
 
+/*###################################################################
+int rpcRegister(char* name, int* argTypes, skeleton f)
+#####################################################################*/
+
 int rpcRegister(char* name, int* argTypes, skeleton f) {
    int bytes_sent;
    string tmp;
    int status,s,length;
    s=server_binder_s;
    //prepare the message
-   char type[]="REGISTER";
+   char type[18];
    int i =0;
+   record.insert(pair <char*,skeleton> (name,f));
    while (argTypes[i] != NULL) i++;
    i++;
    //Assume length: type= 18; server address=40;port=4;name=20
@@ -98,6 +108,7 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
       name: char[]
       argTypes: int[]
    */
+   strcpy(type,"REGISTER");
    int offset = 0 ;
    char msg[length];
    memset(msg,0,sizeof(msg));
@@ -120,14 +131,25 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
       return -2; //for now, need to change later
    } 
    //check the repley from binder
-   char buf[18];
-   status = recv(s, buf, 18, 0);
+   char buf[26];
+   int errorcode;
+   memset(buf,0,26);
+   status = recv(s, buf, 26, 0);
+   memset(type,0,TYPE_LEN);
+   memcpy(type,&buf[4],18);
+   memcpy(&errorcode,&buf[22],4);
    if (strcmp(buf,"REGISTER_SUCCESS") == 0) {
       cout << "REGISTER_SUCCESS" << endl;
-      return 0;
+      return errorcode;
+   } else {
+      cout << "REGISTER_FAILURE" << endl;
+      return errorcode; //for now, need to change later
    }
-   else return -2; //for now, need to change later
 }
+
+/*###################################################################
+int rpcExecute()
+#####################################################################*/
 
 void* checkterm (void *flag) {
    int status,length;
@@ -201,6 +223,28 @@ int rpcExecute() {
    
    
 }
+
+/*###################################################################
+int rpcCall(char* name, int* argTypes, void** args)
+#####################################################################*/
+
+int argsize(int argtype) {
+   switch (argtype) {
+   case 1:
+      return sizeof(char);
+   case 2:
+      return sizeof(short);
+   case 3:
+      return sizeof(int);
+   case 4:
+      return sizeof(long);
+   case 5:
+      return sizeof(double);
+   case 6:
+      return sizeof(float);
+   }
+}
+
 
 int rpcCall(char* name, int* argTypes, void** args) {
 //open a connection to the binder
@@ -302,9 +346,47 @@ int rpcCall(char* name, int* argTypes, void** args) {
    bytes_sent = send(s, call, 20, 0);
    status = recv(s, call, 20, 0);
    cout << "message from server: " << call << endl;*/
-   
+   //prepare the message
+   //calculate the length of message
+   length = 0;
+   int argnum = 0;
+   while (argTypes[argnum] != 0) argnum++;
+   argnum++;
+   //msg len+type len+ name len + argsnum;
+   length=4+TYPE_LEN+NAME_LEN+4;
+   //add size of argTypes
+   length+=argnum*sizeof(int);
+   //add size of args
+   int argsize[argnum];
+   for (int i = 0; i < argnum; i++) {
+      int size = argTypes[i] & 65535;
+      cout << "size: " << size << endl;
+      int argtype = (argTypes[i]>>16) & 255;
+      if (argtype == 0) argtype=1;
+      argsize[i]=size*argtype;
+      length+=argsize[i];
+   }
+   char fncall[length];
+   //compose the message
+   offset=0;
+   memcpy(&fncall[offset],&length,4);
+   offset+=4;
+   memcpy(&fncall[offset],type,TYPE_LEN);
+   offset+=TYPE_LEN;
+   memcpy(&fncall[offset],name,NAME_LEN);
+   offset+=NAME_LEN;
+   memcpy(&fncall[offset],argTypes,argnum*sizeof(int));
+   offset+=argnum*sizeof(int);
+   for (int i = 0; i < argnum; i++) {
+      memcpy(&fncall[offset],args[i],argsize[i]);
+      offset+=argsize[i];
+   }
    close(s);
 }
+
+/*###################################################################
+int rpcTerminate()
+#####################################################################*/
 
 int rpcTerminate() {
    //open a connection to the binder
