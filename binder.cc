@@ -13,6 +13,7 @@
 #include <vector>
 #include <map>
 #include <sys/utsname.h>
+#include "rpc.h"
 
 
 using namespace std;
@@ -20,6 +21,8 @@ using namespace std;
 
 // terminal signal
 bool terminal_signal = false;
+int register_error_no = 0;
+int reasonCode = 0;
 
 struct serverInfo {
     string server_addr;
@@ -32,6 +35,7 @@ struct serverInfo {
 };
 
 static map <pair<string, int*>, vector<struct serverInfo> > procedure_db;
+static vector<struct serverInfo> roundRobin_list;
 
 pair<string, int*> create_key(string name, int* args) {
     pair<string, int*> key;
@@ -45,90 +49,194 @@ void error(string s) {
     exit(1);
 }
 
-/*
+
+// checking existing service, if current service exist in the database, return the service.
+// if not return a "not_exist" service
 pair<string, int*> service_search(pair<string, int*> key) {
     map <pair<string, int*>, vector<struct serverInfo> >::iterator it;
     for (it = procedure_db.begin(); it != procedure_db.end(); ++it) {
         pair<string, int*> tmp = it->first;
         if (sizeof(key.second) == sizeof(tmp.second)) {
-            
+            bool same = true;
+            for (int i = 0; i < sizeof(key.second); i++) {
+                if (key.second[i] != tmp.second[i]) {
+                    same = false;
+                }
+            }
+            if (same) {
+                return tmp;
+            }
         }
     }
-    
+    pair<string, int*> not_exist;
+    not_exist.first = "not_exist";
+    return not_exist;
 }
-*/
+
+bool server_check(vector<struct serverInfo> service_list, struct serverInfo loc2) {
+    bool exist = false;
+    for (int i = 0; i < sizeof(service_list); i++) {
+        struct serverInfo loc1 = service_list[i];
+        if (loc1.server_addr == loc2.server_addr && loc1.port == loc2.port) {
+            exist = true;
+            break;
+        }
+    }
+    return exist;
+}
 
 int addServerService(string hostname, int server_port, string funcName, int* args) {
-    // creating key which is formed by  function name and args type
-    pair<string, int*> key = create_key(funcName, args);
+    try {
+        // creating key which is formed by  function name and args type
+        pair<string, int*> key = create_key(funcName, args);
     
-    // create service location to correspounding hostname and port number
-    struct serverInfo location;
-    location.create_info(hostname, server_port);
+        // create service location to correspounding hostname and port number
+        struct serverInfo location;
+        location.create_info(hostname, server_port);
+
+        // no any server exist for the request service
+        pair<string, int*> exist_key = service_search(key);
+        if (exist_key.first == "not_exist") {
+            // store location into procedure database
+            procedure_db[key].push_back(location);
+        
+            // store location into roundrobine list
+            roundRobin_list.push_back(location);
+            register_error_no = 0;
+            return 0;
+        
+        }
     
-    // no any server exist for the request service
-    if (procedure_db.find(key) == procedure_db.end()) {
-        procedure_db[key].push_back(location);
+        else {
+            vector<struct serverInfo> service_list;
+            service_list = procedure_db[exist_key];
+            if (!server_check(service_list, location)) {
+                procedure_db[key].push_back(location);
+                register_error_no = 0;
+                return 0;
+            }
+            else {
+                register_error_no = 1;
+                return 0;
+            }
+        }
+    } catch (exception e) {
+        register_error_no = -1;
+        return -1;
     }
     
-    else {
-        vector<struct serverInfo> service_list;
-        service_list = procedure_db[key];
-        
-        
-    }
-    
-    return 0;
 }
+
 
 void server_register(int len, int fd) {
 
-    bool resigter_success = true;
-    char msg_buff[len]; // receive msg from server request
-    memset(msg_buff, 0, sizeof(msg_buff));
+    bool register_success = true;
+    try {
+        char msg_buff[len]; // receive msg from server request
+        int res = (int) recv(fd, msg_buff, sizeof(msg_buff), 0);
+        if (res < 0) {
+            register_success = false;
+            register_error_no = -2;
+            cerr << "FAILED to receive msg from server request" << endl;
+        }
+    
+        char hostname[ADDRESS_LEN], funcName[NAME_LEN];
+        int server_port, offset = 0;
+        // get hostname from msg
+        memcpy(hostname, msg_buff, sizeof(hostname));
+        offset += ADDRESS_LEN;
+        // get port number from msg
+        memcpy(&server_port, &msg_buff[offset], sizeof(server_port));
+        offset += PORT_LEN;
+        // get function name from msg
+        memcpy(funcName, &msg_buff[offset], sizeof(funcName));
+        offset += NAME_LEN;
+    
+        // compute the number of arguments
+        int args_size = len - ADDRESS_LEN - NAME_LEN;
+        int args_num = args_size/4;
+    
+        int args[args_num];
+        memcpy(args, &msg_buff[offset], args_size);
+    
+        res = addServerService(hostname, server_port, funcName, args);
 
-    int res = (int) recv(fd, msg_buff, sizeof(msg_buff), 0);
-    if (res < 0) {
-        resigter_success = false;
-        cerr << "FAILED to receive msg from server request" << endl;
+        if (res < 0) {
+        register_success = false;
+        }
+    } catch (exception e) {
+        register_error_no = -3;
+        register_success = false;
     }
     
-    char hostname[40], funcName[20];
-    int server_port, offset = 0;
-    // get hostname from msg
-    memcpy(hostname, msg_buff, 40);
-    offset += 40;
-    // get port number from msg
-    memcpy(&server_port, &msg_buff[offset], 4);
-    offset += 4;
-    // get function name from msg
-    memcpy(funcName, &msg_buff[offset], 20);
-    offset += 20;
-    
-    // compute the number of arguments
-    int args_size = len - 64;
-    int args_num = args_size/4;
-    
-    int args[args_num];
-    memcpy(args, &msg_buff[offset], args_size);
-    
-    res = addServerService(hostname, server_port, funcName, args);
-
-    if (res < 0) {
-        resigter_success = false;
-    }
-    
-    if (resigter_success) {
-        // send REGISTER_SUCCESS
+    if (register_success) {
+        int length = 4 + 18 + 4;
+        char success[18] = "REGISTER_SUCCESS";
+        char msg[length];
+        memcpy(msg, &length, sizeof(length));
+        memcpy(&msg[4], success, sizeof(success));
+        memcpy(&msg[22], &register_error_no, sizeof(register_error_no));
+        int status = send(fd, msg, sizeof(msg), 0);
+        if (status < 0) {
+            cerr << "send back register response failed" << endl;
+        }
     }
     
     else {
-        // send REGISTER_FAILURE
+        int length = 4 + 18 + 4;
+        char success[18] = "REGISTER_FAILURE";
+        char msg[length];
+        memcpy(msg, &length, sizeof(length));
+        memcpy(&msg[4], success, sizeof(success));
+        memcpy(&msg[22], &register_error_no, sizeof(register_error_no));
+        int status = send(fd, msg, sizeof(msg), 0);
+        if (status < 0) {
+            cerr << "send back register response failed" << endl;
+        }
     }
 }
 
-void handleLocRequest() {
-    
+void handleLocRequest(int len, int fd) {
+    bool loc_success = true;
+    try {
+        char msgBuff[len];
+        int args_size = len - 20;
+        int args_num = args_size / 4;
+        int res = recv(fd, msgBuff, sizeof(msgBuff), 0);
+        
+        if (res < 0) {
+            loc_success = false;
+            // reason Code
+            cerr << "Failed to receive message from client" << endl;
+        }
+        // collect client function name from message
+        char funcName[NAME_LEN];
+        memcpy(funcName, msgBuff, sizeof(funcName));
+        
+        // collect args type from message
+        int args[args_num];
+        memcpy(args, &msgBuff[20], args_size);
+        
+        // create requesting key by client
+        pair<string, int*> key = create_key(funcName, args);
+        
+        // figure out if the key exist in procedure_db
+        pair<string, int*> db_key = service_search(key);
+        
+        if (db_key.first == "not_exist") {
+            loc_success = false;
+            reasonCode = -1; // no server register required service
+        }
+        
+        else {
+            
+        }
+        
+        
+    } catch (exception e) {
+        loc_success = false;
+        reasonCode = -2; // error occurs while handle local request
+    }
 }
 
 void terminateRequest() {
@@ -153,7 +261,7 @@ int handleAllRequest(int fd) {
     if (strcmp(MSG_TYPE, "REGISTER") == 0)
         server_register(len, fd);
     else if (strcmp(MSG_TYPE, "LOC_REQUEST") == 0)
-        handleLocRequest();
+        handleLocRequest(len, fd);
     else if (strcmp(MSG_TYPE, "TERMINATE") == 0)
         terminateRequest();
     else {
