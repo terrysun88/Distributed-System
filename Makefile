@@ -11,7 +11,7 @@ CXX = g++					# compiler
 CXXFLAGS = -g -Wall -MMD -pthread			# compiler flags
 MAKEFILE_NAME = ${firstword ${MAKEFILE_LIST}}	# makefile name
 
-OBJECTS1 = server.o rpc.o server_functions.o server_function_skels.o # object files forming 1st executable
+OBJECTS1 = server.o server_functions.o server_function_skels.o rpc.o # object files forming 1st executable
 EXEC1 = server				# 1st executable name
 
 OBJECTS2 = client1.o	rpc.o			# object files forming 2nd executable

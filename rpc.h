@@ -22,7 +22,6 @@ extern "C" {
 #define PORT_LEN 4
 #define NAME_LEN 20
 
-
 typedef int (*skeleton)(int *, void **);
 
 extern int rpcInit();

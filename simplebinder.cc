@@ -12,7 +12,9 @@
 
 using namespace std;
 int MAX_SIZE = 2147483;
-
+char server_addr[40];
+int server_port;
+   
 int recv_repley(int fd) {
    char *buf = new char[MAX_SIZE];
    int status,bytes_sent;
@@ -30,23 +32,31 @@ int recv_repley(int fd) {
    cout << "actual: " << status << endl;
    status = recv(fd, buf, len-4, 0);
    char type[18];
-   char server_addr[40];
-   int server_port;
    memcpy(type,buf,18);
    printf("type: %s\n",type);
    if (strcmp(type,"REGISTER") == 0) {
       strcpy(type,"REGISTER_SUCCESS");
-      memcpy(server_addr,&buf[18],40);
-      memcpy(&server_port,&buf[58],4);
-   } else if (strcmp(type,"LOC_REQUEST") == 0) strcpy(type,"LOC_SUCCESS");
-   int length=4+18+40+4;
-   char msg[length];
-   memset(msg,0,sizeof(msg));
-   memcpy(msg,&length,4);
-   memcpy(&msg[4],type,18);
-   memcpy(&msg[22],server_addr,40);
-   memcpy(&msg[62],&server_port,4);
-   bytes_sent = send(fd, msg, length, 0);
+      memcpy(server_addr,&buf[18],64);
+      memcpy(&server_port,&buf[82],4);
+      int length=26;
+      char msg[length];
+      memset(msg,0,sizeof(msg));
+      memcpy(msg,&length,4);
+      memcpy(&msg[4],type,18);
+      int code=100;
+      memcpy(&msg[22],&code,4);
+      bytes_sent = send(fd, msg, length, 0);
+   } else if (strcmp(type,"LOC_REQUEST") == 0) {
+      strcpy(type,"LOC_SUCCESS");
+      int length=4+18+64+4;
+      char msg[length];
+      memset(msg,0,sizeof(msg));
+      memcpy(msg,&length,4);
+      memcpy(&msg[4],type,18);
+      memcpy(&msg[22],server_addr,64);
+      memcpy(&msg[86],&server_port,4);
+      bytes_sent = send(fd, msg, length, 0);
+   }
 }
 
 int main() {
