@@ -21,6 +21,7 @@ using namespace std;
 // terminal signal
 bool terminal_signal = false;
 
+
 struct serverInfo {
     string server_addr;
     int port;
@@ -32,6 +33,7 @@ struct serverInfo {
 };
 
 static map <pair<string, int*>, vector<struct serverInfo> > procedure_db;
+static vector<struct serverInfo> roundRobin_list;
 
 pair<string, int*> create_key(string name, int* args) {
     pair<string, int*> key;
@@ -45,18 +47,41 @@ void error(string s) {
     exit(1);
 }
 
-/*
+
+// checking existing service, if current service exist in the database, return the service.
+// if not return a "not_exist" service
 pair<string, int*> service_search(pair<string, int*> key) {
     map <pair<string, int*>, vector<struct serverInfo> >::iterator it;
     for (it = procedure_db.begin(); it != procedure_db.end(); ++it) {
         pair<string, int*> tmp = it->first;
         if (sizeof(key.second) == sizeof(tmp.second)) {
-            
+            bool same = true;
+            for (int i = 0; i < sizeof(key.second); i++) {
+                if (key.second[i] != tmp.second[i]) {
+                    same = false;
+                }
+            }
+            if (same) {
+                return tmp;
+            }
         }
     }
-    
+    pair<string, int*> not_exist;
+    not_exist.first = "not_exist";
+    return not_exist;
 }
-*/
+
+bool server_check(vector<struct serverInfo> service_list, struct serverInfo loc2) {
+    bool exist = false;
+    for (int i = 0; i < sizeof(service_list); i++) {
+        struct serverInfo loc1 = service_list[i];
+        if (loc1.server_addr == loc2.server_addr && loc1.port == loc2.port) {
+            exist = true;
+            break;
+        }
+    }
+    return exist;
+}
 
 int addServerService(string hostname, int server_port, string funcName, int* args) {
     // creating key which is formed by  function name and args type
@@ -65,17 +90,24 @@ int addServerService(string hostname, int server_port, string funcName, int* arg
     // create service location to correspounding hostname and port number
     struct serverInfo location;
     location.create_info(hostname, server_port);
-    
+
     // no any server exist for the request service
-    if (procedure_db.find(key) == procedure_db.end()) {
+    pair<string, int*> exist_key = service_search(key);
+    if (exist_key.first == "not_exist") {
+        // store location into procedure database
         procedure_db[key].push_back(location);
+        
+        // store location into roundrobine list
+        roundRobin_list.push_back(location);
+        
     }
     
     else {
         vector<struct serverInfo> service_list;
         service_list = procedure_db[key];
-        
-        
+        if (!server_check(service_list, location)) {
+            procedure_db[key].push_back(location);
+        }
     }
     
     return 0;
