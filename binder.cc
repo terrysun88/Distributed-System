@@ -137,6 +137,23 @@ int addServerService(string hostname, int server_port, string funcName, vector<i
     
 }
 
+struct serverInfo loc_search(vector<struct serverInfo> locs) {
+    struct serverInfo server_location;
+    bool done = false;
+    while (!done) {
+        struct serverInfo next_server = roundRobin_list[0];
+        roundRobin_list.erase(roundRobin_list.begin()+1);
+        roundRobin_list.push_back(next_server);
+        for (int i = 0; i < locs.size(); i++) {
+            if(locs[i].server_addr == next_server.server_addr && locs[i].port == next_server.port) {
+                server_location = locs[i];
+                done = true;
+                break;
+            }
+        }
+    }
+    return server_location;
+}
 
 void server_register(int len, int fd) {
 
@@ -245,13 +262,52 @@ void handleLocRequest(int len, int fd) {
         }
         
         else {
+            vector<struct serverInfo> server_loc = procedure_db[db_key];
+            struct serverInfo location = loc_search(server_loc);
+            string hostname = location.server_addr;
+            char hostIP[ADDRESS_LEN];
+            strcpy(hostIP, hostname.c_str());
+            int port = location.port;
+            char success_msg[TYPE_LEN] = "LOC_SUCCESS";
+            
+            int length = 4 + TYPE_LEN + ADDRESS_LEN + PORT_LEN;
+            char msg[length];
+            memset(msg, 0, sizeof(msg));
+            memcpy(msg, &length, 4);
+            int offset = 4;
+            memcpy(&msg[offset], success_msg, TYPE_LEN);
+            offset += TYPE_LEN;
+            memcpy(&msg[offset], hostIP, ADDRESS_LEN);
+            offset += ADDRESS_LEN;
+            memcpy(&msg[offset], &port, PORT_LEN);
+            int status = send(fd, msg, sizeof(msg), 0);
+            if (status < 0) {
+                loc_success = false;
+                cerr << "failed to send response to client" << endl;
+                reasonCode = -3; // error occurs while send response to client
+            }
             
         }
         
         
     } catch (exception e) {
         loc_success = false;
+        cerr << "error ocurs while handle local request" << endl;
         reasonCode = -2; // error occurs while handle local request
+    }
+    
+    if (!loc_success) {
+        char failure_msg[TYPE_LEN] = "LOC_FAILURE";
+        int length = 4 + TYPE_LEN + 4;
+        char msg[length];
+        memset(msg, 0, sizeof(msg));
+        memcpy(msg, &length, 4);
+        memcpy(&msg[4], failure_msg, TYPE_LEN);
+        memcpy(&msg[22], &reasonCode, 4);
+        int status = send(fd, msg, sizeof(msg), 0);
+        if (status < 0) {
+            cerr << "Fail to send failure message" << endl;
+        }
     }
 }
 
@@ -321,12 +377,13 @@ int main() {
     else
         printf("BINDER_PORT %d\n", ntohs(sin.sin_port));
     //max 5 clients
-    listen(s,5);
+    listen(s,20);
     freeaddrinfo(servinfo);
     //init select()
     FD_ZERO(&active_set);
     FD_SET(s, &active_set);
     for (;;) {
+        int nread;
         //assign backup to ready queue
         read_set = active_set;
         //modify read_set drop socket without new message
@@ -347,12 +404,16 @@ int main() {
                     }
                     FD_SET(new_sfd, &active_set);
                 } else {
-                    // Data arriving on connected socket.
-                    status = handleAllRequest(i);
-                    if (status < 0) {
+                    ioctl(i, FIONREAD, &nread);
+                    
+                    if (nread == 0) {
                         close(i);
                         FD_CLR(i, &active_set);
                     }
+                    else {
+                        handleAllRequest(i);
+                    }
+
                 }
             }
     }
