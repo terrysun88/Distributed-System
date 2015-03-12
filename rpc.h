@@ -16,11 +16,7 @@ extern "C" {
 
 #define ARG_INPUT   31
 #define ARG_OUTPUT  30
-//Length Assumption
-#define TYPE_LEN 18
-#define ADDRESS_LEN 64
-#define PORT_LEN 4
-#define NAME_LEN 20
+
 
 typedef int (*skeleton)(int *, void **);
 
