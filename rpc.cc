@@ -13,6 +13,7 @@
 #include <sstream>
 #include <vector>
 #include <signal.h>
+#include "function.h"
 
 using namespace std;
 
@@ -22,6 +23,7 @@ char hostname[50];
 int volatile server_binder_s,server_client_s;
 int volatile *pool = new int[20];
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cv = PTHREAD_COND_INITIALIZER;
 vector<Function*> record;
 int volatile threads=0;
 
@@ -52,9 +54,12 @@ int function(Function* fn,char *name1,int typesize1,int *types1, skeleton f1) {
    return 0;
 }
 
-int deletefn(Function* fn) {
-   delete [] fn->name;
-   delete [] fn->types;
+int deletefn() {
+   for (int i = 0; i < record.size(); i++) {
+      delete [] record[i]->name;
+      delete [] record[i]->types;
+      delete record[i];
+   }
    return 0;
 }
 
@@ -287,13 +292,13 @@ void* Execute (void *val) {
       }
    }
    //clean up
-   
-   
+   sleep(10); //testing server wait for all runing threads
    pthread_mutex_lock(&mutex);
    int i = 0;
    while (pool[i] != s) i++;
    pool[i] = NULL;
    threads--;
+   pthread_cond_signal(&cv);
    pthread_mutex_unlock(&mutex);
    close(s);
 }
@@ -340,20 +345,17 @@ int rpcExecute() {
    char buf[length-4];
    status = recv(s, buf, length-4, 0);
    if (strcmp(buf,"TERMINATE") == 0) {
+      close(server_binder_s);
       bool f=false;
       memcpy(&flag,&f,sizeof(bool));
-      
-      for (;;) {
-         if (threads == 0) {
-            pthread_cancel(thread1);
-            break;
-         }
-      }
+      pthread_mutex_lock( &mutex);
+      while (threads != 0) pthread_cond_wait(&cv, &mutex);
+      pthread_cancel(thread1);
       cout << "closing" << endl;
       close(server_client_s);
    } else
       cerr << "Binder sending crazy msg to Server Poi~" << endl;
-   
+   deletefn();   
    delete [] pool;
    /*
    char call[20];

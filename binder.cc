@@ -14,6 +14,7 @@
 #include <map>
 #include <sys/utsname.h>
 #include "rpc.h"
+#include "function.h"
 
 
 using namespace std;
