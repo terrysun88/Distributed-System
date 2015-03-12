@@ -13,7 +13,7 @@
 #include <vector>
 #include <map>
 #include <sys/utsname.h>
-#include "rpc.h"
+#include "function.h"
 
 
 using namespace std;
@@ -159,7 +159,7 @@ struct serverInfo loc_search(vector<struct serverInfo> locs) {
 }
 
 void server_register(int len, int fd) {
-
+    register_error_no = -4; // other errors
     bool register_success = true;
     try {
         char msg_buff[len]; // receive msg from server request
@@ -190,6 +190,10 @@ void server_register(int len, int fd) {
         memcpy(args, &msg_buff[offset], args_size);
         vector<int> args_list;
         for (int i = 0; i < args_num; i++) {
+            if (args[i] < 1 || args[i] > 6) {
+                register_error_no = -3; //invalid args type
+                throw exception();
+            }
             args_list.push_back(args[i]);
         }
         res = addServerService(hostname, server_port, funcName, args_list, fd);
@@ -198,7 +202,6 @@ void server_register(int len, int fd) {
         register_success = false;
         }
     } catch (exception e) {
-        register_error_no = -3;
         register_success = false;
     }
     
@@ -314,6 +317,10 @@ void handleLocRequest(int len, int fd) {
     }
 }
 
+void remove_crashed_server(string hostname, int port, int fd, fd_set *activitys) {
+    
+}
+
 void terminateRequest() {
     int length = 4 + TYPE_LEN;
     char terminate_msg[TYPE_LEN] = "TERMINATE";
@@ -332,7 +339,7 @@ void terminateRequest() {
             cerr << roundRobin_list[i].port << endl;
         }
     }
-    
+    terminal_signal = true;
     
 }
 
@@ -403,7 +410,7 @@ int main() {
     //init select()
     FD_ZERO(&active_set);
     FD_SET(s, &active_set);
-    for (;;) {
+    while (!terminal_signal) {
         int nread;
         //assign backup to ready queue
         read_set = active_set;
@@ -438,7 +445,7 @@ int main() {
                 }
             }
     }
-
+    close(s);
     exit(0);
 }
 
