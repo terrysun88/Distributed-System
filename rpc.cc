@@ -483,6 +483,10 @@ int rpcCall(char* name, int* argTypes, void** args) {
    length = 4+TYPE_LEN+ADDRESS_LEN+PORT_LEN;
    char buf[length];
    status = recv(s, buf, length, 0);
+   if (status < 1) {
+      cout << "Binder is Dead! " << errno << endl;
+      return -7; //for now, need to change later
+   }
    char temp[TYPE_LEN];
    memcpy(temp,&buf[4],TYPE_LEN);
    if (strcmp(temp,"LOC_SUCCESS") == 0) {
@@ -571,6 +575,10 @@ int rpcCall(char* name, int* argTypes, void** args) {
    //waiting for the repley
    memset(fncall,0,length);
    status = recv(s, fncall, length, 0);
+   if (status < 1) {
+      cout << "Server is Dead! " << errno << endl;
+      return -8; //for now, need to change later
+   }
    memcpy(type,&fncall[4],TYPE_LEN);
    if (strcmp(type,"EXECUTE_SUCCESS") == 0) {
       cout << "EXECUTE_SUCCESS" << endl;
