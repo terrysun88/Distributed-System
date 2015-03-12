@@ -27,10 +27,12 @@ int reasonCode = 0;
 struct serverInfo {
     string server_addr;
     int port;
+    int fd;
     
-    void create_info(string addr, int p) {
+    void create_info(string addr, int p, int s) {
         server_addr = addr;
         port = p;
+        fd = s;
     }
 };
 
@@ -95,23 +97,26 @@ bool server_check(vector<struct serverInfo> service_list, struct serverInfo loc2
     return exist;
 }
 
-int addServerService(string hostname, int server_port, string funcName, vector<int> args) {
+int addServerService(string hostname, int server_port, string funcName, vector<int> args, int fd) {
     try {
         // creating key which is formed by  function name and args type
         pair<string, vector<int> > key = create_key(funcName, args);
     
         // create service location to correspounding hostname and port number
         struct serverInfo location;
-        location.create_info(hostname, server_port);
+        location.create_info(hostname, server_port, fd);
 
+        // check if server location exist in the roundroubin; if not, store location into roundrobine list
+        if (!server_check(roundRobin_list, location)) {
+            roundRobin_list.push_back(location);
+        }
+        
         // no any server exist for the request service
         pair<string, vector<int> > exist_key = service_search(key);
         if (exist_key.first == "not_exist") {
             // store location into procedure database
             procedure_db[key].push_back(location);
         
-            // store location into roundrobine list
-            roundRobin_list.push_back(location);
             register_error_no = 0;
             return 0;
         
@@ -139,18 +144,16 @@ int addServerService(string hostname, int server_port, string funcName, vector<i
 
 struct serverInfo loc_search(vector<struct serverInfo> locs) {
     struct serverInfo server_location;
-    bool done = false;
-    while (!done) {
-        struct serverInfo next_server = roundRobin_list[0];
-        roundRobin_list.erase(roundRobin_list.begin()+1);
-        roundRobin_list.push_back(next_server);
-        for (int i = 0; i < locs.size(); i++) {
+    for (int i = 0; i < roundRobin_list.size(); i++){
+        struct serverInfo next_server = roundRobin_list[i];
+        for (int j = 0; j < locs.size(); j++) {
             if(locs[i].server_addr == next_server.server_addr && locs[i].port == next_server.port) {
-                server_location = locs[i];
-                done = true;
+                server_location = next_server;
                 break;
             }
         }
+        roundRobin_list.erase(roundRobin_list.begin() + i + 1);
+        roundRobin_list.push_back(next_server);
     }
     return server_location;
 }
@@ -189,7 +192,7 @@ void server_register(int len, int fd) {
         for (int i = 0; i < args_num; i++) {
             args_list.push_back(args[i]);
         }
-        res = addServerService(hostname, server_port, funcName, args_list);
+        res = addServerService(hostname, server_port, funcName, args_list, fd);
 
         if (res < 0) {
         register_success = false;
@@ -213,8 +216,8 @@ void server_register(int len, int fd) {
     }
     
     else {
-        int length = 4 + 18 + 4;
-        char success[18] = "REGISTER_FAILURE";
+        int length = 4 + TYPE_LEN + 4;
+        char success[TYPE_LEN] = "REGISTER_FAILURE";
         char msg[length];
         memcpy(msg, &length, sizeof(length));
         memcpy(&msg[4], success, sizeof(success));
@@ -312,6 +315,24 @@ void handleLocRequest(int len, int fd) {
 }
 
 void terminateRequest() {
+    int length = 4 + TYPE_LEN;
+    char terminate_msg[TYPE_LEN] = "TERMINATE";
+    char msg[length];
+    memset(msg, 0, sizeof(msg));
+    memcpy(msg, &length, 4);
+    memcpy(&msg[4], terminate_msg, TYPE_LEN);
+
+    // send terminate message to all registered server
+    for (int i = 0; i < roundRobin_list.size(); i++) {
+        int fd = roundRobin_list[i].fd;
+        int status = send(fd, msg, sizeof(msg), 0);
+        if (status < 0) {
+            cerr << "Failed to send terminate message to Server: ";
+            cerr << roundRobin_list[i].server_addr << " Port: ";
+            cerr << roundRobin_list[i].port << endl;
+        }
+    }
+    
     
 }
 
