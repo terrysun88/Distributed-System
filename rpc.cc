@@ -342,9 +342,10 @@ int rpcExecute() {
    if (strcmp(buf,"TERMINATE") == 0) {
       bool f=false;
       memcpy(&flag,&f,sizeof(bool));
+      
       for (;;) {
          if (threads == 0) {
-            pthread_kill(thread1,1);
+            pthread_cancel(thread1);
             break;
          }
       }
