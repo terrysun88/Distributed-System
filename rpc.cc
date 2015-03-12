@@ -443,7 +443,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
    s = socket(servinfo->ai_family, servinfo->ai_socktype, 
                      servinfo->ai_protocol);
    status = connect(s, servinfo->ai_addr, servinfo->ai_addrlen);
-   if (status == -1) {
+   if (status < 1) {
       cout << "connection to Binder failed: " << errno << endl;
       return -2; //for now, need to change later
    }
@@ -475,7 +475,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
    offset+=i*sizeof(int);
    //send the message to binder
    int bytes_sent = send(s, msg, length, 0);
-   if (bytes_sent == -1) {
+   if (bytes_sent < 1) {
       cout << "Client to Binder Failed: Unable to send" << endl;
       return -2; //for now, need to change later
    } 
