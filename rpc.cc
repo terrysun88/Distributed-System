@@ -12,16 +12,18 @@
 #include "rpc.h"
 #include <sstream>
 #include <vector>
+#include <signal.h>
 
 using namespace std;
 
 //Declare Global Variables
 uint16_t portnum;
 char hostname[50];
-int server_binder_s,server_client_s;
-int *pool = new int[20];
+int volatile server_binder_s,server_client_s;
+int volatile *pool = new int[20];
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 vector<Function*> record;
+int volatile threads=0;
 
 //return size of each type
 int argsizebytes(int argtype) {
@@ -192,21 +194,6 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
 int rpcExecute()
 #####################################################################*/
 
-void* checkterm (void *flag) {
-   int status,length;
-   int s=server_binder_s;
-   char temp[4];
-   status = recv(s, temp, 4, 0);
-   memcpy(&length,temp,4);
-   char buf[length-4];
-   status = recv(s, buf, length-4, 0);
-   if (strcmp(buf,"TERMINATE") == 0) {
-      bool f=false;
-      memcpy(&flag,&f,sizeof(bool));
-   } else
-      cerr << "Binder sending crazy msg to Server Poi~" << endl;
-}
-
 void* Execute (void *val) {
    int s=*(int*)val;
    int status,bytes_sent,length,argsnum;
@@ -254,7 +241,7 @@ void* Execute (void *val) {
       skeleton f = findfunc(name,0);
       if (f != NULL) retval = f(argTypes,args);
       if (retval == 0) {
-         cout << retval << endl;
+         //cout << retval << endl;
          //cout << "Evaluate: " << *((int *)(args[0])) << endl;
          //send result back
          offset = 0;
@@ -306,38 +293,66 @@ void* Execute (void *val) {
    int i = 0;
    while (pool[i] != s) i++;
    pool[i] = NULL;
+   threads--;
    pthread_mutex_unlock(&mutex);
    close(s);
 }
 
-int rpcExecute() {
-   pthread_t thread1;
-   int ret1;
-   bool flag = true;
-   ret1 = pthread_create(&thread1, NULL, checkterm, (void *)&flag);
-   if(ret1) {
-      fprintf(stderr,"Error - pthread_create() return code: %d\n",ret1);
-      exit(EXIT_FAILURE);
-   }
+
+void* acceptnew (void *flag) {
    struct sockaddr_storage their_addr;
    socklen_t addr_size;
-   int s_new,status,bytes_sent;
+   int status,bytes_sent;
    //support up to 20 clients
    listen(server_client_s,20);
-   while (flag) {
+   while (*(bool*)flag) {
       int i = 0;
       int s_new = accept(server_client_s, (struct sockaddr *)&their_addr, &addr_size);
+      if (s_new == -1) cout << "Server Accept faileds: " << errno << endl;
       pthread_t thread2;
       pthread_mutex_lock(&mutex);
       while (pool[i] != NULL) i++;
       pool[i]=s_new;
       int ret2 = pthread_create(&thread2, NULL, Execute, (void *)&pool[i]);
       if(ret2) {
-        fprintf(stderr,"Error - pthread_create() return code: %d\n",ret1);
+        fprintf(stderr,"Error - pthread_create() return code: %d\n",ret2);
         exit(EXIT_FAILURE);
       }
+      threads++;
       pthread_mutex_unlock(&mutex);
    }
+}
+
+int rpcExecute() {
+   pthread_t thread1;
+   int ret1;
+   bool flag = true;
+   ret1 = pthread_create(&thread1, NULL, acceptnew, (void*)&flag);
+   if(ret1) {
+      fprintf(stderr,"Error - pthread_create() return code: %d\n",ret1);
+      exit(EXIT_FAILURE);
+   }
+   int status,length;
+   int s=server_binder_s;
+   char temp[4];
+   status = recv(s, temp, 4, 0);
+   memcpy(&length,temp,4);
+   char buf[length-4];
+   status = recv(s, buf, length-4, 0);
+   if (strcmp(buf,"TERMINATE") == 0) {
+      bool f=false;
+      memcpy(&flag,&f,sizeof(bool));
+      for (;;) {
+         if (threads == 0) {
+            pthread_kill(thread1,1);
+            break;
+         }
+      }
+      cout << "closing" << endl;
+      close(server_client_s);
+   } else
+      cerr << "Binder sending crazy msg to Server Poi~" << endl;
+   
    delete [] pool;
    /*
    char call[20];
