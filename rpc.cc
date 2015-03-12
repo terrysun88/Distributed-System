@@ -11,7 +11,6 @@
 #include <sys/utsname.h>
 #include "rpc.h"
 #include <sstream>
-#include <map>
 #include <vector>
 
 using namespace std;
@@ -22,8 +21,7 @@ char hostname[50];
 int server_binder_s,server_client_s;
 int *pool = new int[20];
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-map<char*,skeleton> record;
-vector<skeleton> rec;
+vector<Function*> record;
 
 //return size of each type
 int argsizebytes(int argtype) {
@@ -41,6 +39,28 @@ int argsizebytes(int argtype) {
    case 6:
       return sizeof(float);
    }
+}
+
+int function(Function* fn,char *name1,int typesize1,int *types1, skeleton f1) {
+   fn->name = new char[20];
+   fn->types = new int[typesize1];
+   strcpy(fn->name,name1);
+   for (int i = 0; i < typesize1; i++) fn->types[i]=types1[i];
+   fn->f=f1;
+   return 0;
+}
+
+int deletefn(Function* fn) {
+   delete [] fn->name;
+   delete [] fn->types;
+   return 0;
+}
+
+skeleton findfunc(char *name,int type) {
+   for (int i = 0; i < record.size(); i++) {
+      if (strcmp(record[i]->name,name) == 0) return record[i]->f;
+   }
+   return NULL;
 }
 
 /*###################################################################
@@ -114,8 +134,6 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    //prepare the message
    char type[TYPE_LEN];
    int i =0;
-   record.insert(pair <char*,skeleton> (name,f));
-   rec.push_back(f);
    while (argTypes[i] != 0) i++;
    //Assume length: type= 18; server address=40;port=4;name=20
    length=4+TYPE_LEN+ADDRESS_LEN+PORT_LEN+NAME_LEN+i*sizeof(int);
@@ -128,6 +146,9 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
       name: char[]
       argTypes: int[]
    */
+   Function *func = new Function;
+   function(func,name,i,argTypes,f);
+   record.push_back(func);
    strcpy(type,"REGISTER");
    int offset = 0 ;
    char msg[length];
@@ -214,30 +235,70 @@ void* Execute (void *val) {
       offset+=4;
       int argTypes[argsnum];
       void *args[argsnum];
+      int argsize[argsnum];
       memcpy(argTypes,&fncall[offset],argsnum*sizeof(int));
       offset+=argsnum*sizeof(int);
       for (int i =0; i < argsnum; i++) {
          int size = argTypes[i] & 65535;
-         cout << "size: " << size << endl;
          int argtype = (argTypes[i]>>16) & 255;
-         cout << "argtype: " << argtype << endl;
          if (size < 1) size=1;
          int bytesize = size*argsizebytes(argtype);
+         argsize[i]=bytesize;
          char *temp = new char[bytesize];
          memcpy(temp,&fncall[offset],bytesize);
          offset+=bytesize;
          args[i]=(void*)temp;
       }
-      cout << name << endl;
-      skeleton f = rec[0];
-      f(argTypes,args);
-      cout << "Evaluate: " << *((int *)(args[0])) << endl;
+      //invoke the function
+      int retval=1; 
+      skeleton f = findfunc(name,0);
+      if (f != NULL) retval = f(argTypes,args);
+      if (retval == 0) {
+         cout << retval << endl;
+         //cout << "Evaluate: " << *((int *)(args[0])) << endl;
+         //send result back
+         offset = 0;
+         char result[length];
+         memcpy(result,&length,4);
+         offset+=4;
+         strcpy(type,"EXECUTE_SUCCESS");
+         memcpy(&result[offset],type,TYPE_LEN);
+         offset+=TYPE_LEN;
+         memcpy(&result[offset],name,NAME_LEN);
+         offset+=NAME_LEN;
+         memcpy(&result[offset],&argsnum,4);
+         offset+=4;
+         memcpy(&result[offset],argTypes,argsnum*sizeof(int));
+         offset+=argsnum*sizeof(int);
+         for (int i = 0; i < argsnum; i++) {
+            memcpy(&result[offset],args[i],argsize[i]);
+            offset+=argsize[i];
+         }
+         bytes_sent = send(s, result, length, 0);
+         if (bytes_sent == -1) {
+            cout << "Server to Client: Unable to send" << endl;
+            errno = -2; //for now, need to change later
+         }
+      } else if (retval < 0) {
+         char result[length];
+         strcpy(type,"EXECUTE_FAILURE");
+         //cout << type << endl;
+         int errorcode = -2; //for now
+         length=4+TYPE_LEN+4;
+         offset = 0;
+         memcpy(result,&length,4);
+         offset+=4;
+         memcpy(&result[offset],type,TYPE_LEN);
+         offset+=TYPE_LEN;
+         memcpy(&result[offset],&errorcode,TYPE_LEN);
+         offset+=4;
+         bytes_sent = send(s, result, length, 0);
+         if (bytes_sent == -1) {
+            cout << "Server to Client: Unable to send" << endl;
+            errno = -2; //for now, need to change later
+         }
+      }
    }
-      
-   //invoke the function
-   
-   //send result back
-   
    //clean up
    
    
@@ -362,9 +423,9 @@ int rpcCall(char* name, int* argTypes, void** args) {
    //close client's connection to binder
    close(s);
 //connect to the server
-   cout << "Address: " << server_addr << endl << "Port: " << server_port << endl;
+   //cout << "Address: " << server_addr << endl << "Port: " << server_port << endl;
    //convert int port to string
-   char server_portnum[8];
+   char server_portnum[4];
    string tmp;
    ostringstream convert;
    convert << server_port;
@@ -404,9 +465,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
    int argsize[argnum];
    for (int i = 0; i < argnum; i++) {
       int size = argTypes[i] & 65535;
-      cout << "size: " << size << endl;
       int argtype = (argTypes[i]>>16) & 255;
-      cout << "argtype: " << argtype << endl;
       if (size < 1) size=1;
       argsize[i]=size*argsizebytes(argtype);
       length+=argsize[i];
@@ -437,7 +496,25 @@ int rpcCall(char* name, int* argTypes, void** args) {
       return -2; //for now, need to change later
    } 
    //waiting for the repley
+   memset(fncall,0,length);
    status = recv(s, fncall, length, 0);
+   memcpy(type,&fncall[4],TYPE_LEN);
+   if (strcmp(type,"EXECUTE_SUCCESS") == 0) {
+      cout << "EXECUTE_SUCCESS" << endl;
+      offset=4+TYPE_LEN+NAME_LEN+4+argnum*sizeof(int);
+      for (int i = 0; i < argnum; i++) {
+         if (((argTypes[i]>>ARG_OUTPUT) & 1) == 1) {
+            memcpy(args[i],&fncall[offset],argsize[i]);
+            break;
+         }
+         offset+=argsize[i];
+      }
+   } else {
+      cout << "EXECUTE_FAILURE" << endl;
+      int errorcode;
+      memcpy(&errorcode,&fncall[4+TYPE_LEN],4);
+      return errorcode;
+   }
    close(s);
    return 0;
 }
