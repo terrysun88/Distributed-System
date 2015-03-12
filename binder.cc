@@ -13,6 +13,7 @@
 #include <vector>
 #include <map>
 #include <sys/utsname.h>
+#include "rpc.h"
 #include "function.h"
 
 
@@ -145,21 +146,26 @@ int addServerService(string hostname, int server_port, string funcName, vector<i
 struct serverInfo loc_search(vector<struct serverInfo> locs) {
     struct serverInfo server_location;
     for (int i = 0; i < roundRobin_list.size(); i++){
+        bool found = false;
         struct serverInfo next_server = roundRobin_list[i];
         for (int j = 0; j < locs.size(); j++) {
-            if(locs[i].server_addr == next_server.server_addr && locs[i].port == next_server.port) {
+            if(locs[j].server_addr == next_server.server_addr && locs[j].port == next_server.port) {
                 server_location = next_server;
+                found = true;
                 break;
             }
         }
-        roundRobin_list.erase(roundRobin_list.begin() + i + 1);
-        roundRobin_list.push_back(next_server);
+        if (found) {
+            roundRobin_list.erase(roundRobin_list.begin() + i);
+            roundRobin_list.push_back(next_server);
+            break;
+        }
     }
     return server_location;
 }
 
 void server_register(int len, int fd) {
-    register_error_no = -4; // other errors
+
     bool register_success = true;
     try {
         char msg_buff[len]; // receive msg from server request
@@ -190,10 +196,6 @@ void server_register(int len, int fd) {
         memcpy(args, &msg_buff[offset], args_size);
         vector<int> args_list;
         for (int i = 0; i < args_num; i++) {
-            if (args[i] < 1 || args[i] > 6) {
-                register_error_no = -3; //invalid args type
-                throw exception();
-            }
             args_list.push_back(args[i]);
         }
         res = addServerService(hostname, server_port, funcName, args_list, fd);
@@ -202,6 +204,7 @@ void server_register(int len, int fd) {
         register_success = false;
         }
     } catch (exception e) {
+        register_error_no = -3;
         register_success = false;
     }
     
@@ -270,6 +273,24 @@ void handleLocRequest(int len, int fd) {
         else {
             vector<struct serverInfo> server_loc = procedure_db[db_key];
             struct serverInfo location = loc_search(server_loc);
+            
+            // check if server is still alive
+            int check_len = 22;
+            char check_msg[18] = "STATUS";
+            char full_msg[22];
+            memset(full_msg, 0, sizeof(full_msg));
+            memcpy(full_msg, &check_len, 4);
+            memcpy(&full_msg[4], check_msg, sizeof(check_msg));
+            char server_status[6];
+            send(location.fd, full_msg, sizeof(full_msg), 0);
+            int res = recv(location.fd, server_status, 6, 0);
+            if (res == 0) {
+                cout << "server is down: "<< res << endl;
+            }
+            else if (res > 0) {
+                cout << "server is still online: " << res << endl;
+            }
+            
             string hostname = location.server_addr;
             char hostIP[ADDRESS_LEN];
             strcpy(hostIP, hostname.c_str());
@@ -317,10 +338,6 @@ void handleLocRequest(int len, int fd) {
     }
 }
 
-void remove_crashed_server(string hostname, int port, int fd, fd_set *activitys) {
-    
-}
-
 void terminateRequest() {
     int length = 4 + TYPE_LEN;
     char terminate_msg[TYPE_LEN] = "TERMINATE";
@@ -363,7 +380,7 @@ int handleAllRequest(int fd) {
     else if (strcmp(MSG_TYPE, "TERMINATE") == 0)
         terminateRequest();
     else {
-        error("receiving incorrect request!");
+        cerr << "receiving incorrect request!" << endl;
     }
     
     return 0;
@@ -445,6 +462,7 @@ int main() {
                 }
             }
     }
+    
     close(s);
     exit(0);
 }
