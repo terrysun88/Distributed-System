@@ -336,6 +336,7 @@ void* acceptnew (void *flag) {
    while (*(bool*)flag) {
       int i = 0;
       int s_new = accept(server_client_s, (struct sockaddr *)&their_addr, &addr_size);
+      cout << *(bool*)flag << endl;
       cout << "Incoming Connection" << endl;
       if (s_new == -1) cout << "Server Accept faileds: " << errno << endl;
       pthread_t thread2;
@@ -396,7 +397,7 @@ int rpcExecute() {
          deletefn();   
          delete [] pool;
          return -7; //for now, need to change later
-   }
+      }
       if (strcmp(buf,"TERMINATE") == 0) {
          close(server_binder_s);
          bool f=false;
@@ -407,6 +408,9 @@ int rpcExecute() {
          cout << "closing" << endl;
          close(server_client_s);
          break;
+      } else if (strcmp(buf,"STATUS") == 0) {
+         char garbage[6]="Miao~";
+         send(server_binder_s,garbage,6, 0);
       } else
          cerr << "Binder sending crazy msg to Server Poi~" << endl;
    }
@@ -443,7 +447,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
    s = socket(servinfo->ai_family, servinfo->ai_socktype, 
                      servinfo->ai_protocol);
    status = connect(s, servinfo->ai_addr, servinfo->ai_addrlen);
-   if (status < 1) {
+   if (status == -1) {
       cout << "connection to Binder failed: " << errno << endl;
       return -2; //for now, need to change later
    }
