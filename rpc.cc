@@ -336,6 +336,7 @@ void* acceptnew (void *flag) {
    while (*(bool*)flag) {
       int i = 0;
       int s_new = accept(server_client_s, (struct sockaddr *)&their_addr, &addr_size);
+      cout << "Incoming Connection" << endl;
       if (s_new == -1) cout << "Server Accept faileds: " << errno << endl;
       pthread_t thread2;
       pthread_mutex_lock(&mutex);
@@ -362,22 +363,53 @@ int rpcExecute() {
    }
    int status,length;
    int s=server_binder_s;
-   char temp[4];
-   status = recv(s, temp, 4, 0);
-   memcpy(&length,temp,4);
-   char buf[length-4];
-   status = recv(s, buf, length-4, 0);
-   if (strcmp(buf,"TERMINATE") == 0) {
-      close(server_binder_s);
-      bool f=false;
-      memcpy(&flag,&f,sizeof(bool));
-      pthread_mutex_lock( &mutex);
-      while (threads != 0) pthread_cond_wait(&cv, &mutex);
-      pthread_cancel(thread1);
-      cout << "closing" << endl;
-      close(server_client_s);
-   } else
-      cerr << "Binder sending crazy msg to Server Poi~" << endl;
+   while (true) {
+      char temp[4];
+      status = recv(s, temp, 4, 0);
+      if (status < 1) {
+         cout << "Binder is Dead: " << errno << endl;
+         close(server_binder_s);
+         bool f=false;
+         memcpy(&flag,&f,sizeof(bool));
+         pthread_mutex_lock( &mutex);
+         while (threads != 0) pthread_cond_wait(&cv, &mutex);
+         pthread_cancel(thread1);
+         cout << "closing" << endl;
+         close(server_client_s);
+         deletefn();   
+         delete [] pool;
+         return -7; //for now, need to change later
+      }
+      memcpy(&length,temp,4);
+      char buf[length-4];
+      status = recv(s, buf, length-4, 0);
+      if (status < 1) {
+         cout << "Binder is Dead: " << errno << endl;
+         close(server_binder_s);
+         bool f=false;
+         memcpy(&flag,&f,sizeof(bool));
+         pthread_mutex_lock( &mutex);
+         while (threads != 0) pthread_cond_wait(&cv, &mutex);
+         pthread_cancel(thread1);
+         cout << "closing" << endl;
+         close(server_client_s);
+         deletefn();   
+         delete [] pool;
+         return -7; //for now, need to change later
+   }
+      if (strcmp(buf,"TERMINATE") == 0) {
+         close(server_binder_s);
+         bool f=false;
+         memcpy(&flag,&f,sizeof(bool));
+         pthread_mutex_lock( &mutex);
+         while (threads != 0) pthread_cond_wait(&cv, &mutex);
+         pthread_cancel(thread1);
+         cout << "closing" << endl;
+         close(server_client_s);
+         break;
+      } else
+         cerr << "Binder sending crazy msg to Server Poi~" << endl;
+   }
    deletefn();   
    delete [] pool;
    /*
@@ -464,7 +496,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
    //close client's connection to binder
    close(s);
 //connect to the server
-   //cout << "Address: " << server_addr << endl << "Port: " << server_port << endl;
+   cout << "Address: " << server_addr << endl << "Port: " << server_port << endl;
    //convert int port to string
    char server_portnum[4];
    string tmp;
