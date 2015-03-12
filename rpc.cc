@@ -48,6 +48,7 @@ int argsizebytes(int argtype) {
 int function(Function* fn,char *name1,int typesize1,int *types1, skeleton f1) {
    fn->name = new char[20];
    fn->types = new int[typesize1];
+   fn->typesize=typesize1;
    strcpy(fn->name,name1);
    for (int i = 0; i < typesize1; i++) fn->types[i]=types1[i];
    fn->f=f1;
@@ -63,9 +64,31 @@ int deletefn() {
    return 0;
 }
 
-skeleton findfunc(char *name,int type) {
+skeleton findfunc(char *name,int argnum, int *argTypes) {
    for (int i = 0; i < record.size(); i++) {
-      if (strcmp(record[i]->name,name) == 0) return record[i]->f;
+      bool found = false;
+      if (strcmp(record[i]->name,name) == 0 && 
+         (argnum == record[i]->typesize)) {
+         int j;
+         for (j = 0; j < argnum; j++) {
+            int a = record[i]->types[j];
+            int b = argTypes[j];
+            int type1 = a>>16;
+            int type2 = b>>16;
+            int size1 = a&65535;
+            int size2 = b&65535;
+            /* debug
+            cout << "type1: " << type1 << endl;
+            cout << "type2: " << type2 << endl;
+            cout << "size1: " << size1 << endl;
+            cout << "size2: " << size1 << endl;
+            */
+            if ((type1 != type2) || (size1 > 1 && size2 <= 1) 
+                 || (size1 < 1 && size2 >= 1)) break;
+            if (j == argnum-1) found = true;
+         }
+         if (found) return record[i]->f;
+      }
    }
    return NULL;
 }
@@ -243,7 +266,7 @@ void* Execute (void *val) {
       }
       //invoke the function
       int retval=1; 
-      skeleton f = findfunc(name,0);
+      skeleton f = findfunc(name,argsnum,argTypes);
       if (f != NULL) retval = f(argTypes,args);
       if (retval == 0) {
          //cout << retval << endl;
@@ -292,7 +315,7 @@ void* Execute (void *val) {
       }
    }
    //clean up
-   sleep(10); //testing server wait for all runing threads
+   sleep(5); //testing server wait for all runing threads
    pthread_mutex_lock(&mutex);
    int i = 0;
    while (pool[i] != s) i++;

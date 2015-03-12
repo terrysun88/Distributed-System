@@ -9,6 +9,7 @@
 
 struct Function {
    char *name;
+   int typesize;
    int *types;
    skeleton f;
 };
