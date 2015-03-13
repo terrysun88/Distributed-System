@@ -12,7 +12,6 @@
 #include "rpc.h"
 #include <sstream>
 #include <vector>
-#include <signal.h>
 #include "function.h"
 
 using namespace std;
@@ -315,7 +314,7 @@ void* Execute (void *val) {
       }
    }
    //clean up
-   sleep(5); //testing server wait for all runing threads
+   sleep(10); //testing server wait for all runing threads
    pthread_mutex_lock(&mutex);
    int i = 0;
    while (pool[i] != s) i++;
@@ -336,6 +335,10 @@ void* acceptnew (void *flag) {
    while (*(bool*)flag) {
       int i = 0;
       int s_new = accept(server_client_s, (struct sockaddr *)&their_addr, &addr_size);
+      if (!*(bool*)flag) {
+         close(s_new);
+         break;
+      }
       cout << *(bool*)flag << endl;
       cout << "Incoming Connection" << endl;
       if (s_new == -1) cout << "Server Accept faileds: " << errno << endl;
@@ -486,6 +489,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
    //check the repley from binder
    length = 4+TYPE_LEN+ADDRESS_LEN+PORT_LEN;
    char buf[length];
+   memset(buf,0,sizeof(buf));
    status = recv(s, buf, length, 0);
    if (status < 1) {
       cout << "Binder is Dead! " << errno << endl;
