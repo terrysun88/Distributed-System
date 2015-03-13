@@ -15,7 +15,7 @@
 #include <sys/utsname.h>
 #include "rpc.h"
 #include "function.h"
-
+#include <signal.h>
 
 using namespace std;
 
@@ -24,6 +24,7 @@ using namespace std;
 bool terminal_signal = false;
 int register_error_no = 0;
 int reasonCode = 0;
+fd_set *sets;
 
 struct serverInfo {
     string server_addr;
@@ -52,6 +53,9 @@ void error(string s) {
     exit(1);
 }
 
+void handle_signal(int s) {
+    // do nothing
+}
 
 // checking existing service, if current service exist in the database, return the service.
 // if not return a "not_exist" service
@@ -201,6 +205,8 @@ void remove_crash_server() {
         int res = recv(location.fd, server_status, 6, 0);
         if (res == 0) {
             roundRobin_list.erase(roundRobin_list.begin() + i);
+            close(location.fd);
+            FD_CLR(location.fd, sets);
             clean_service(location);
         }
     }
@@ -363,6 +369,9 @@ void handleLocRequest(int len, int fd) {
             cerr << "Fail to send failure message" << endl;
         }
     }
+    close(fd);
+    FD_CLR(fd, sets);
+    
 }
 
 void terminateRequest() {
@@ -448,6 +457,7 @@ int main() {
         perror("getsockname");
     else
         printf("BINDER_PORT %d\n", ntohs(sin.sin_port));
+    
     //max 5 clients
     listen(s,20);
     freeaddrinfo(servinfo);
@@ -476,16 +486,15 @@ int main() {
                     }
                     FD_SET(new_sfd, &active_set);
                 } else {
+                    sets = &active_set;
                     ioctl(i, FIONREAD, &nread);
                     
                     if (nread == 0) {
-                        close(i);
-                        FD_CLR(i, &active_set);
+                        //do nothing
                     }
                     else {
                         handleAllRequest(i);
                     }
-
                 }
             }
     }
