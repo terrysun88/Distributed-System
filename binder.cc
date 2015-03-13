@@ -146,17 +146,64 @@ int addServerService(string hostname, int server_port, string funcName, vector<i
 struct serverInfo loc_search(vector<struct serverInfo> locs) {
     struct serverInfo server_location;
     for (int i = 0; i < roundRobin_list.size(); i++){
+        bool found = false;
         struct serverInfo next_server = roundRobin_list[i];
         for (int j = 0; j < locs.size(); j++) {
-            if(locs[i].server_addr == next_server.server_addr && locs[i].port == next_server.port) {
+            if(locs[j].server_addr == next_server.server_addr && locs[j].port == next_server.port) {
                 server_location = next_server;
+                found = true;
                 break;
             }
         }
-        roundRobin_list.erase(roundRobin_list.begin() + i + 1);
-        roundRobin_list.push_back(next_server);
+        if (found) {
+            roundRobin_list.erase(roundRobin_list.begin() + i);
+            roundRobin_list.push_back(next_server);
+            break;
+        }
     }
     return server_location;
+}
+
+// iterator each service, remove all crashed server location, if no location exist, remove the service
+void clean_service(struct serverInfo loc) {
+    map <pair<string, vector<int> >, vector<struct serverInfo> >::iterator it;
+    for (it = procedure_db.begin(); it != procedure_db.end(); ++it) {
+        for (int i = 0; i < it->second.size(); i++) {
+            struct serverInfo tmp_loc = it->second[i];
+            if (loc.server_addr == tmp_loc.server_addr && loc.port == tmp_loc.port && loc.fd == tmp_loc.fd) {
+                it->second.erase(it->second.begin() + i);
+            }
+            if (it->second.size() == 0) {
+                procedure_db.erase(it);
+            }
+            else {
+                procedure_db[it->first] = it->second;
+            }
+        }
+    }
+}
+
+// remove all crashed server from roundRoubin list and service database
+void remove_crash_server() {
+    struct serverInfo location;
+    for (int i = 0; i < roundRobin_list.size(); i++) {
+        
+        location = roundRobin_list[i];
+        // check if server is still alive
+        int check_len = 22;
+        char check_msg[18] = "STATUS";
+        char full_msg[22];
+        memset(full_msg, 0, sizeof(full_msg));
+        memcpy(full_msg, &check_len, 4);
+        memcpy(&full_msg[4], check_msg, sizeof(check_msg));
+        char server_status[6];
+        send(location.fd, full_msg, sizeof(full_msg), 0);
+        int res = recv(location.fd, server_status, 6, 0);
+        if (res == 0) {
+            roundRobin_list.erase(roundRobin_list.begin() + i);
+            clean_service(location);
+        }
+    }
 }
 
 void server_register(int len, int fd) {
@@ -257,6 +304,8 @@ void handleLocRequest(int len, int fd) {
         // create requesting key by client
         pair<string, vector<int> > key = create_key(funcName, args_list);
         
+        remove_crash_server();
+        
         // figure out if the key exist in procedure_db
         pair<string, vector<int> > db_key = service_search(key);
         
@@ -268,6 +317,7 @@ void handleLocRequest(int len, int fd) {
         else {
             vector<struct serverInfo> server_loc = procedure_db[db_key];
             struct serverInfo location = loc_search(server_loc);
+            
             string hostname = location.server_addr;
             char hostIP[ADDRESS_LEN];
             strcpy(hostIP, hostname.c_str());
@@ -333,7 +383,7 @@ void terminateRequest() {
             cerr << roundRobin_list[i].port << endl;
         }
     }
-    
+    terminal_signal = true;
     
 }
 
@@ -357,7 +407,7 @@ int handleAllRequest(int fd) {
     else if (strcmp(MSG_TYPE, "TERMINATE") == 0)
         terminateRequest();
     else {
-        error("receiving incorrect request!");
+        cerr << "receiving incorrect request!" << endl;
     }
     
     return 0;
@@ -404,7 +454,7 @@ int main() {
     //init select()
     FD_ZERO(&active_set);
     FD_SET(s, &active_set);
-    for (;;) {
+    while (!terminal_signal) {
         int nread;
         //assign backup to ready queue
         read_set = active_set;
@@ -439,7 +489,8 @@ int main() {
                 }
             }
     }
-
+    
+    close(s);
     exit(0);
 }
 
