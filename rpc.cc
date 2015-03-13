@@ -209,11 +209,15 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
       cerr << "Registration Failed: Unable to send" << endl;
       return -2; //for now, need to change later
    } 
-   //check the repley from binder
+   //check the reply from binder
    char buf[26];
    int errorcode;
    memset(buf,0,26);
    status = recv(s, buf, 26, 0);
+   if (status < 1) {
+      cerr << "Binder is Dead" << endl;
+      return -9;
+   }
    memset(type,0,TYPE_LEN);
    memcpy(type,&buf[4],TYPE_LEN);
    memcpy(&errorcode,&buf[22],4);
@@ -238,16 +242,34 @@ void* Execute (void *val) {
    //recv from client
    char temp[4];
    status = recv(s, &length, 4, 0);
-   if (status == -1) {
+   if (status < 1) {
       cerr << "Server from Client failed: " << errno << endl;
       errno=-2; //for now, need to change later
-   }
+      pthread_mutex_lock(&mutex);
+      int i = 0;
+      while (pool[i] != s) i++;
+      pool[i] = NULL;
+      threads--;
+      pthread_cond_signal(&cv);
+      pthread_mutex_unlock(&mutex);
+      close(s);
+      pthread_exit(NULL);
+   } 
    char fncall[length-4];
    memset(fncall,0,length-4);
    status = recv(s, fncall, length-4, 0);
-   if (status == -1) {
+   if (status < 1) {
       cerr << "Server from Client failed: " << errno << endl;
       errno=-2; //for now, need to change later
+      pthread_mutex_lock(&mutex);
+      int i = 0;
+      while (pool[i] != s) i++;
+      pool[i] = NULL;
+      threads--;
+      pthread_cond_signal(&cv);
+      pthread_mutex_unlock(&mutex);
+      close(s);
+      pthread_exit(NULL);
    }
    memcpy(type,fncall,TYPE_LEN);
    if (strcmp(type,"EXECUTE") == 0) {
@@ -323,7 +345,7 @@ void* Execute (void *val) {
       }
    }
    //clean up
-   sleep(10); //testing server wait for all runing threads
+   //sleep(10); //testing server wait for all runing threads
    pthread_mutex_lock(&mutex);
    int i = 0;
    while (pool[i] != s) i++;
@@ -348,6 +370,7 @@ void* acceptnew (void *flag) {
          close(s_new);
          break;
       }
+      cerr << "Incoming" << endl;
       //cerr << *(bool*)flag << endl;
       //cerr << "Incoming Connection" << endl;
       if (s_new == -1) cerr << "Server Accept faileds: " << errno << endl;
@@ -496,7 +519,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
       cerr << "Client to Binder Failed: Unable to send" << endl;
       return -2; //for now, need to change later
    } 
-   //check the repley from binder
+   //check the reply from binder
    length = 4+TYPE_LEN+ADDRESS_LEN+PORT_LEN;
    char buf[length];
    memset(buf,0,sizeof(buf));
@@ -590,7 +613,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
       cerr << "Client to Server Failed: Unable to send" << endl;
       return -4; //for now, need to change later
    } 
-   //waiting for the repley
+   //waiting for the reply
    memset(fncall,0,length);
    status = recv(s, fncall, length, 0);
    if (status < 1) {
