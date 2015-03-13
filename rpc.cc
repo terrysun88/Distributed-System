@@ -63,7 +63,7 @@ int deletefn() {
    return 0;
 }
 
-skeleton findfunc(char *name,int argnum, int *argTypes) {
+int findfunc(char *name,int argnum, int *argTypes) {
    for (int i = 0; i < record.size(); i++) {
       bool found = false;
       if (strcmp(record[i]->name,name) == 0 && 
@@ -77,19 +77,28 @@ skeleton findfunc(char *name,int argnum, int *argTypes) {
             int size1 = a&65535;
             int size2 = b&65535;
             /* debug
-            cout << "type1: " << type1 << endl;
-            cout << "type2: " << type2 << endl;
-            cout << "size1: " << size1 << endl;
-            cout << "size2: " << size1 << endl;
+            cerr << "type1: " << type1 << endl;
+            cerr << "type2: " << type2 << endl;
+            cerr << "size1: " << size1 << endl;
+            cerr << "size2: " << size1 << endl;
             */
             if ((type1 != type2) || (size1 > 1 && size2 <= 1) 
                  || (size1 < 1 && size2 >= 1)) break;
             if (j == argnum-1) found = true;
          }
-         if (found) return record[i]->f;
+         if (found) return i;
       }
    }
-   return NULL;
+   return -1;
+}
+
+int insertfunc(Function *fn) {
+   int index = findfunc(fn->name,fn->typesize,fn->types);
+   if (index == -1) record.push_back(fn);
+      else {
+         record[index]->f = fn->f;
+         delete fn;
+      }
 }
 
 /*###################################################################
@@ -114,8 +123,8 @@ int rpcInit() {
                      servinfo->ai_protocol);
    status = connect(server_binder_s, servinfo->ai_addr, servinfo->ai_addrlen);
    if (status == -1) {
-      cout << "connection to Binder failed: " << errno << endl;
-      return -2; //for now, need to change later
+      cerr << "connection to Binder failed: " << errno << endl;
+      return -3; //for now, need to change later
    }
    
 //create a connection socket to be used for accepting connections from clients.
@@ -146,7 +155,7 @@ int rpcInit() {
    else
       //printf("SERVER_PORT %d\n", ntohs(sin.sin_port));
       portnum=ntohs(sin.sin_port);
-   cout << "SERVER_PORT " << portnum << endl;
+   cerr << "SERVER_PORT " << portnum << endl;
    freeaddrinfo(servinfo);
    return 0;
 }
@@ -177,7 +186,7 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    */
    Function *func = new Function;
    function(func,name,i,argTypes,f);
-   record.push_back(func);
+   insertfunc(func);
    strcpy(type,"REGISTER");
    int offset = 0 ;
    char msg[length];
@@ -197,7 +206,7 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    //send the message to binder
    bytes_sent = send(s, msg, length, 0);
    if (bytes_sent == -1) {
-      cout << "Registration Failed: Unable to send" << endl;
+      cerr << "Registration Failed: Unable to send" << endl;
       return -2; //for now, need to change later
    } 
    //check the repley from binder
@@ -209,10 +218,10 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    memcpy(type,&buf[4],TYPE_LEN);
    memcpy(&errorcode,&buf[22],4);
    if (strcmp(type,"REGISTER_SUCCESS") == 0) {
-      cout << "REGISTER_SUCCESS" << endl;
+      cerr << "REGISTER_SUCCESS" << endl;
       return errorcode;
    } else {
-      cout << "REGISTER_FAILURE" << endl;
+      cerr << "REGISTER_FAILURE" << endl;
       return errorcode; //for now, need to change later
    }
 }
@@ -230,14 +239,14 @@ void* Execute (void *val) {
    char temp[4];
    status = recv(s, &length, 4, 0);
    if (status == -1) {
-      cout << "Server from Client failed: " << errno << endl;
+      cerr << "Server from Client failed: " << errno << endl;
       errno=-2; //for now, need to change later
    }
    char fncall[length-4];
    memset(fncall,0,length-4);
    status = recv(s, fncall, length-4, 0);
    if (status == -1) {
-      cout << "Server from Client failed: " << errno << endl;
+      cerr << "Server from Client failed: " << errno << endl;
       errno=-2; //for now, need to change later
    }
    memcpy(type,fncall,TYPE_LEN);
@@ -265,11 +274,11 @@ void* Execute (void *val) {
       }
       //invoke the function
       int retval=1; 
-      skeleton f = findfunc(name,argsnum,argTypes);
-      if (f != NULL) retval = f(argTypes,args);
+      int indicator = findfunc(name,argsnum,argTypes);
+      if (indicator != -1) retval = record[indicator]->f(argTypes,args);
       if (retval == 0) {
-         //cout << retval << endl;
-         //cout << "Evaluate: " << *((int *)(args[0])) << endl;
+         //cerr << retval << endl;
+         //cerr << "Evaluate: " << *((int *)(args[0])) << endl;
          //send result back
          offset = 0;
          char result[length];
@@ -290,13 +299,13 @@ void* Execute (void *val) {
          }
          bytes_sent = send(s, result, length, 0);
          if (bytes_sent == -1) {
-            cout << "Server to Client: Unable to send" << endl;
+            cerr << "Server to Client: Unable to send" << endl;
             errno = -2; //for now, need to change later
          }
       } else if (retval < 0) {
          char result[length];
          strcpy(type,"EXECUTE_FAILURE");
-         //cout << type << endl;
+         //cerr << type << endl;
          int errorcode = -2; //for now
          length=4+TYPE_LEN+4;
          offset = 0;
@@ -308,7 +317,7 @@ void* Execute (void *val) {
          offset+=4;
          bytes_sent = send(s, result, length, 0);
          if (bytes_sent == -1) {
-            cout << "Server to Client: Unable to send" << endl;
+            cerr << "Server to Client: Unable to send" << endl;
             errno = -2; //for now, need to change later
          }
       }
@@ -339,9 +348,9 @@ void* acceptnew (void *flag) {
          close(s_new);
          break;
       }
-      cout << *(bool*)flag << endl;
-      cout << "Incoming Connection" << endl;
-      if (s_new == -1) cout << "Server Accept faileds: " << errno << endl;
+      //cerr << *(bool*)flag << endl;
+      //cerr << "Incoming Connection" << endl;
+      if (s_new == -1) cerr << "Server Accept faileds: " << errno << endl;
       pthread_t thread2;
       pthread_mutex_lock(&mutex);
       while (pool[i] != NULL) i++;
@@ -371,14 +380,14 @@ int rpcExecute() {
       char temp[4];
       status = recv(s, temp, 4, 0);
       if (status < 1) {
-         cout << "Binder is Dead: " << errno << endl;
+         cerr << "Binder is Dead: " << errno << endl;
          close(server_binder_s);
          bool f=false;
          memcpy(&flag,&f,sizeof(bool));
          pthread_mutex_lock( &mutex);
          while (threads != 0) pthread_cond_wait(&cv, &mutex);
          pthread_cancel(thread1);
-         cout << "closing" << endl;
+         cerr << "Server Shutdown Due to Lost Connection to Binder" << endl;
          close(server_client_s);
          deletefn();   
          delete [] pool;
@@ -388,14 +397,14 @@ int rpcExecute() {
       char buf[length-4];
       status = recv(s, buf, length-4, 0);
       if (status < 1) {
-         cout << "Binder is Dead: " << errno << endl;
+         cerr << "Binder is Dead: " << errno << endl;
          close(server_binder_s);
          bool f=false;
          memcpy(&flag,&f,sizeof(bool));
          pthread_mutex_lock( &mutex);
          while (threads != 0) pthread_cond_wait(&cv, &mutex);
          pthread_cancel(thread1);
-         cout << "closing" << endl;
+         cerr << "Server Shutdown Due to Lost Connection to Binder" << endl;
          close(server_client_s);
          deletefn();   
          delete [] pool;
@@ -408,7 +417,7 @@ int rpcExecute() {
          pthread_mutex_lock( &mutex);
          while (threads != 0) pthread_cond_wait(&cv, &mutex);
          pthread_cancel(thread1);
-         cout << "closing" << endl;
+         cerr << "Server Shutdown Normally" << endl;
          close(server_client_s);
          break;
       } else if (strcmp(buf,"STATUS") == 0) {
@@ -419,10 +428,11 @@ int rpcExecute() {
    }
    deletefn();   
    delete [] pool;
+   return 0;
    /*
    char call[20];
    status = recv(s_new, call, 20, 0);
-   cout << "message from client: " << call << endl;
+   cerr << "message from client: " << call << endl;
    strcpy(call,"Damn it!");
    bytes_sent = send(s_new, call, 20, 0);*/
 }
@@ -451,7 +461,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
                      servinfo->ai_protocol);
    status = connect(s, servinfo->ai_addr, servinfo->ai_addrlen);
    if (status == -1) {
-      cout << "connection to Binder failed: " << errno << endl;
+      cerr << "connection to Binder failed: " << errno << endl;
       return -2; //for now, need to change later
    }
 //send LOC_REQUEST to binder
@@ -482,8 +492,8 @@ int rpcCall(char* name, int* argTypes, void** args) {
    offset+=i*sizeof(int);
    //send the message to binder
    int bytes_sent = send(s, msg, length, 0);
-   if (bytes_sent < 1) {
-      cout << "Client to Binder Failed: Unable to send" << endl;
+   if (bytes_sent == -1) {
+      cerr << "Client to Binder Failed: Unable to send" << endl;
       return -2; //for now, need to change later
    } 
    //check the repley from binder
@@ -492,7 +502,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
    memset(buf,0,sizeof(buf));
    status = recv(s, buf, length, 0);
    if (status < 1) {
-      cout << "Binder is Dead! " << errno << endl;
+      cerr << "Binder is Dead! " << errno << endl;
       return -7; //for now, need to change later
    }
    char temp[TYPE_LEN];
@@ -508,7 +518,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
    //close client's connection to binder
    close(s);
 //connect to the server
-   cout << "Address: " << server_addr << endl << "Port: " << server_port << endl;
+   cerr << "Address: " << server_addr << endl << "Port: " << server_port << endl;
    //convert int port to string
    char server_portnum[4];
    string tmp;
@@ -527,15 +537,15 @@ int rpcCall(char* name, int* argTypes, void** args) {
                      servinfo->ai_protocol);
    status = connect(s, servinfo->ai_addr, servinfo->ai_addrlen);
    if (status == -1) {
-      cout << "connection to Server failed: " << errno << endl;
-      return -2; //for now, need to change later
+      cerr << "connection to Server failed: " << errno << endl;
+      return -4; //for now, need to change later
    }
 //send request to server
    /*
    char call[]="Hello World";
    bytes_sent = send(s, call, 20, 0);
    status = recv(s, call, 20, 0);
-   cout << "message from server: " << call << endl;*/
+   cerr << "message from server: " << call << endl;*/
    //prepare the message
    //calculate the length of message
    strcpy(type,"EXECUTE");
@@ -574,22 +584,22 @@ int rpcCall(char* name, int* argTypes, void** args) {
       offset+=argsize[i];
    }
    
-   //send the message
+   //send the request
    bytes_sent = send(s, fncall, length, 0);
    if (bytes_sent == -1) {
-      cout << "Client to Server Failed: Unable to send" << endl;
-      return -2; //for now, need to change later
+      cerr << "Client to Server Failed: Unable to send" << endl;
+      return -4; //for now, need to change later
    } 
    //waiting for the repley
    memset(fncall,0,length);
    status = recv(s, fncall, length, 0);
    if (status < 1) {
-      cout << "Server is Dead! " << errno << endl;
+      cerr << "Server is Dead! " << errno << endl;
       return -8; //for now, need to change later
    }
    memcpy(type,&fncall[4],TYPE_LEN);
    if (strcmp(type,"EXECUTE_SUCCESS") == 0) {
-      cout << "EXECUTE_SUCCESS" << endl;
+      cerr << "EXECUTE_SUCCESS" << endl;
       offset=4+TYPE_LEN+NAME_LEN+4+argnum*sizeof(int);
       for (int i = 0; i < argnum; i++) {
          if (((argTypes[i]>>ARG_OUTPUT) & 1) == 1) {
@@ -599,7 +609,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
          offset+=argsize[i];
       }
    } else {
-      cout << "EXECUTE_FAILURE" << endl;
+      cerr << "EXECUTE_FAILURE" << endl;
       int errorcode;
       memcpy(&errorcode,&fncall[4+TYPE_LEN],4);
       return errorcode;
@@ -632,7 +642,7 @@ int rpcTerminate() {
                      servinfo->ai_protocol);
    status = connect(s, servinfo->ai_addr, servinfo->ai_addrlen);
    if (status == -1) {
-      cout << "connection to Binder failed: " << errno << endl;
+      cerr << "connection to Binder failed: " << errno << endl;
       return -2; //for now, need to change later
    }
 //send terminate to binder
