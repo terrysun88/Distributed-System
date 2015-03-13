@@ -1,5 +1,6 @@
-#ifndef __PRNG_H__
-#define __PRNG_H__
+#ifndef __FUNCTION_H__
+#define __FUNCTION_H__
+
 
 //Length Assumption
 #define TYPE_LEN 18
@@ -12,6 +13,18 @@ struct Function {
    int typesize;
    int *types;
    skeleton f;
+};
+
+struct serverInfo {
+    std::string server_addr;
+    int port;
+    int fd;
+    
+    void create_info(std::string addr, int p, int s) {
+        server_addr = addr;
+        port = p;
+        fd = s;
+    }
 };
 
 #endif
