@@ -16,30 +16,10 @@
 #include "rpc.h"
 #include "function.h"
 #include <signal.h>
+#include "binder.h"
 
 using namespace std;
 
-
-// terminal signal
-bool terminal_signal = false;
-int register_error_no = 0;
-int reasonCode = 0;
-fd_set *sets;
-
-struct serverInfo {
-    string server_addr;
-    int port;
-    int fd;
-    
-    void create_info(string addr, int p, int s) {
-        server_addr = addr;
-        port = p;
-        fd = s;
-    }
-};
-
-map <pair<string, vector<int> >, vector<struct serverInfo> > procedure_db;
-vector<struct serverInfo> roundRobin_list;
 
 pair<string, vector<int> > create_key(string name, vector<int> args) {
     pair<string, vector<int> > key;
@@ -53,9 +33,6 @@ void error(string s) {
     exit(1);
 }
 
-void handle_signal(int s) {
-    // do nothing
-}
 
 // checking existing service, if current service exist in the database, return the service.
 // if not return a "not_exist" service
