@@ -148,14 +148,14 @@ int rpcInit() {
    struct sockaddr_in sin;
    socklen_t leng = sizeof(sin);
    struct hostent* retval=gethostbyname(hostname1);
-   printf("SERVER_ADDRESS %s\n",retval->h_name);
+   //printf("SERVER_ADDRESS %s\n",retval->h_name);
    strcpy(hostname,retval->h_name);
    if (getsockname(server_client_s, (struct sockaddr *)&sin, &leng) == -1) 
       perror("getsockname");
    else
       //printf("SERVER_PORT %d\n", ntohs(sin.sin_port));
       portnum=ntohs(sin.sin_port);
-   cerr << "SERVER_PORT " << portnum << endl;
+   //cerr << "SERVER_PORT " << portnum << endl;
    freeaddrinfo(servinfo);
    return 0;
 }
@@ -370,7 +370,7 @@ void* acceptnew (void *flag) {
          close(s_new);
          break;
       }
-      cerr << "Incoming" << endl;
+      //cerr << "Incoming" << endl;
       //cerr << *(bool*)flag << endl;
       //cerr << "Incoming Connection" << endl;
       if (s_new == -1) cerr << "Server Accept faileds: " << errno << endl;
@@ -541,7 +541,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
    //close client's connection to binder
    close(s);
 //connect to the server
-   cerr << "Address: " << server_addr << endl << "Port: " << server_port << endl;
+   //cerr << "Address: " << server_addr << endl << "Port: " << server_port << endl;
    //convert int port to string
    char server_portnum[4];
    string tmp;
