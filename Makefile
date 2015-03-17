@@ -1,47 +1,10 @@
-# Universal makefile for multiple C++ programs
-#
-# Use gcc flag -MMD (user) or -MD (user/system) to generate dependences among source files.
-# Use gmake default rules for commonly used file-name suffixes and make variables names.
-#
-# % make [ searcher | phil ]
-
-########## Variables ##########
-
-CXX = g++					# compiler
-CXXFLAGS = -g -Wall -MMD -pthread			# compiler flags
-MAKEFILE_NAME = ${firstword ${MAKEFILE_LIST}}	# makefile name
-
-OBJECTS1 = server.o server_functions.o server_function_skels.o rpc.o # object files forming 1st executable
-EXEC1 = server				# 1st executable name
-
-OBJECTS2 = client1.o	rpc.o			# object files forming 2nd executable
-EXEC2 = client					# 2nd executable name
-
-OBJECTS3 = binder.o	rpc.o			# object files forming 3rd executable
-EXEC3 = binder					# 3rd executable name
-
-OBJECTS = ${OBJECTS1} ${OBJECTS2} ${OBJECTS3}		# all object files
-DEPENDS = ${OBJECTS:.o=.d}			# substitute ".o" with ".d"
-EXECS = ${EXEC1} ${EXEC2}	${EXEC3}		# all executables
-
-########## Targets ##########
-
-.PHONY : all clean				# not file names
-
-all : ${EXECS}					# build all executables
-
-${EXEC1} : ${OBJECTS1}				# link step 1st executable
-	${CXX} ${CXXFLAGS} $^ -o $@		# additional object files before $^
-
-${EXEC2} : ${OBJECTS2}				# link step 2nd executable
-	${CXX} ${CXXFLAGS} $^ -o $@		# additional object files before $^
-	
-${EXEC3} : ${OBJECTS3}				# link step 3rd executable
-	${CXX} ${CXXFLAGS} $^ -o $@		# additional object files before $^
-
-${OBJECTS} : ${MAKEFILE_NAME}			# OPTIONAL : changes to this file => recompile
-
--include ${DEPENDS}				# include *.d files containing program dependences
-
-clean :						# remove files that can be regenerated
-	rm -f ${DEPENDS} ${OBJECTS} ${EXECS}
+FLAGS=-Wall -g -pthread
+all: librpc.a binder 
+librpc.a: rpc.o 
+	ar rcs librpc.a rpc.o
+rpc.o: rpc.cc rpc.h function.h
+	g++ $(FLAGS) -c rpc.cc -o rpc.o
+binder: binder.h binder.cc librpc.a
+	g++ $(FLAGS) -L. binder.cc -lrpc -o binder
+clean:
+	rm *.o *.a 
