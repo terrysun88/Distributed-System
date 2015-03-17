@@ -67,6 +67,20 @@ pair<string, vector<int> > service_search(pair<string, vector<int> > key) {
     return not_exist;
 }
 
+void send_err_msg(int fd) {
+    char failure_msg[TYPE_LEN] = "FAILURE";
+    int length = 4 + TYPE_LEN + 4;
+    char msg[length];
+    memset(msg, 0, sizeof(msg));
+    memcpy(msg, &length, 4);
+    memcpy(&msg[4], failure_msg, TYPE_LEN);
+    memcpy(&msg[22], &request_error_no, 4);
+    int status = send(fd, msg, sizeof(msg), 0);
+    if (status < 0) {
+        cerr << "Fail to send failure message" << endl;
+    }
+}
+
 bool server_check(vector<struct serverInfo> service_list, struct serverInfo loc2) {
     bool exist = false;
     for (int i = 0; i < service_list.size(); i++) {
@@ -113,7 +127,7 @@ int addServerService(string hostname, int server_port, string funcName, vector<i
                 return 0;
             }
             else {
-                register_error_no = 1;
+                register_error_no = 10;
                 return 0;
             }
         }
@@ -197,8 +211,8 @@ void server_register(int len, int fd) {
         int res = (int) recv(fd, msg_buff, sizeof(msg_buff), 0);
         if (res < 0) {
             register_success = false;
-            register_error_no = -2;
-            cerr << "FAILED to receive msg from server request" << endl;
+            register_error_no = -32;
+            throw exception();
         }
     
         char hostname[ADDRESS_LEN], funcName[NAME_LEN];
@@ -229,8 +243,10 @@ void server_register(int len, int fd) {
         register_success = false;
         }
     } catch (exception e) {
-        register_error_no = -3;
-        register_success = false;
+        if (register_error_no == 0) {
+            register_error_no = -1;
+            register_success = false;
+        }
     }
     
     if (register_success) {
@@ -270,8 +286,8 @@ void handleLocRequest(int len, int fd) {
         
         if (res < 0) {
             loc_success = false;
-            // reason Code
-            cerr << "Failed to receive message from client" << endl;
+            reasonCode = - 33;
+            throw exception();
         }
         // collect client function name from message
         char funcName[NAME_LEN];
@@ -294,7 +310,7 @@ void handleLocRequest(int len, int fd) {
         
         if (db_key.first == "not_exist") {
             loc_success = false;
-            reasonCode = -1; // no server register required service
+            reasonCode = -34; // no server register required service
         }
         
         else {
@@ -329,8 +345,8 @@ void handleLocRequest(int len, int fd) {
         
     } catch (exception e) {
         loc_success = false;
-        cerr << "error ocurs while handle local request" << endl;
-        reasonCode = -2; // error occurs while handle local request
+        if (reasonCode == 0)
+            reasonCode = -2; // error occurs while handle local request
     }
     
     if (!loc_success) {
@@ -378,7 +394,8 @@ int handleAllRequest(int fd) {
     char buff[22];
     res = recv(fd, buff, 22, 0);
     if (res < 0) {
-        error("FAILED to receive len & MSG_TYPE");
+        request_error_no = -30;
+        send_err_msg(fd);
     }
     
     int len;
@@ -393,7 +410,8 @@ int handleAllRequest(int fd) {
     else if (strcmp(MSG_TYPE, "TERMINATE") == 0)
         terminateRequest();
     else {
-        cerr << "receiving incorrect request!" << endl;
+        request_error_no = -31;
+        send_err_msg(fd);
     }
     
     return 0;

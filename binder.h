@@ -11,6 +11,7 @@
 bool terminal_signal = false;
 int register_error_no = 0;
 int reasonCode = 0;
+int request_error_no = 0;
 fd_set *sets;
 
 // database of service and server
