@@ -222,7 +222,7 @@ int rpcRegister(char* name, int* argTypes, skeleton f) {
    memcpy(type,&buf[4],TYPE_LEN);
    memcpy(&errorcode,&buf[22],4);
    if (strcmp(type,"REGISTER_SUCCESS") == 0) {
-      cerr << "REGISTER_SUCCESS" << endl;
+      //cerr << "REGISTER_SUCCESS" << endl;
       return errorcode;
    } else {
       cerr << "REGISTER_FAILURE" << endl;
@@ -622,7 +622,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
    }
    memcpy(type,&fncall[4],TYPE_LEN);
    if (strcmp(type,"EXECUTE_SUCCESS") == 0) {
-      cerr << "EXECUTE_SUCCESS" << endl;
+      //cerr << "EXECUTE_SUCCESS" << endl;
       offset=4+TYPE_LEN+NAME_LEN+4+argnum*sizeof(int);
       for (int i = 0; i < argnum; i++) {
          if (((argTypes[i]>>ARG_OUTPUT) & 1) == 1) {
