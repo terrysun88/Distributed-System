@@ -12,6 +12,7 @@
 #include "rpc.h"
 #include <sstream>
 #include <vector>
+#include <map>
 #include "function.h"
 
 using namespace std;
@@ -25,6 +26,9 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cv = PTHREAD_COND_INITIALIZER;
 vector<Function*> record;
 int volatile threads=0;
+
+// cache database
+map <pair<string, vector<int> >, vector<struct cacheServerInfo> > cache_db;
 
 //return size of each type
 int argsizebytes(int argtype) {
@@ -62,6 +66,55 @@ int deletefn() {
    }
    return 0;
 }
+
+//******************************************************************************************
+//******************************************************************************************
+//cache helper function
+
+
+pair<string, vector<int> > create_key(string name, vector<int> args) {
+    pair<string, vector<int> > key;
+    key.first = name;
+    key.second = args;
+    return key;
+}
+
+
+pair<string, vector<int> > service_search(pair<string, vector<int> > key) {
+    map <pair<string, vector<int> >, vector<struct cacheServerInfo> >::iterator it;
+    for (it = cache_db.begin(); it != cache_db.end(); ++it) {
+        pair<string, vector<int> > tmp = it->first;
+        if (key.first == tmp.first && key.second.size() == tmp.second.size()) {
+            bool same = true;
+            for (int i = 0; i < key.second.size(); i++) {
+                if (key.second[i] >> 16 != tmp.second[i] >> 16) {
+                    same = false;
+                    break;
+                }
+                else {
+                    short len1 = key.second[i];
+                    short len2 = tmp.second[i];
+                    if ((len1 == 0 && len2 > 0) || (len1 > 0 && len2 == 0)) {
+                        same = false;
+                        break;
+                    }
+                    
+                }
+            }
+            if (same) {
+                return tmp;
+            }
+        }
+    }
+    pair<string, vector<int> > not_exist;
+    not_exist.first = "not_exist";
+    return not_exist;
+}
+
+
+//******************************************************************************************
+//******************************************************************************************
+
 
 int findfunc(char *name,int argnum, int *argTypes) {
    for (int i = 0; i < record.size(); i++) {
@@ -640,6 +693,243 @@ int rpcCall(char* name, int* argTypes, void** args) {
    close(s);
    return 0;
 }
+
+
+//***************************************************************************************
+// rpcCacheCall function
+//***************************************************************************************
+
+int rpcCacheCall(char* name, int* argTypes, void** args) {
+    vector<int> key_args;
+    bool cache_server = false;
+    int i = 0;
+    while (argTypes[i] != 0) {
+        key_args.push_back(argTypes[i]);
+        i++;
+    }
+    while (!cache_server) {
+        pair<string, vector<int> > service_key = create_key(name, key_args);
+        pair<string, vector<int> > search_result = service_search(service_key);
+        if (search_result.first != "not_exist") {
+            int status,s,byte_sent;
+            struct addrinfo hints;
+            struct addrinfo *servinfo; // will point to the results
+            char server_addr[ADDRESS_LEN];
+            int server_port;
+            char type[TYPE_LEN];
+            vector<struct cacheServerInfo> server_loc = cache_db[search_result];
+            int loc_size = server_loc.size(), loc_index = 0;
+            while (loc_index < loc_size && !cache_server) {
+                struct cacheServerInfo cur_loc = server_loc[loc_index];
+                loc_index += 1;
+                strcpy(server_addr, cur_loc.server_addr.c_str());
+                server_port = cur_loc.port;
+                char server_portnum[4];
+                string tmp;
+                ostringstream convert;
+                convert << server_port;
+                tmp = convert.str();
+                strcpy(server_portnum,tmp.c_str());
+                memset(&hints, 0, sizeof hints); // make sure the struct is empty
+                hints.ai_family = AF_UNSPEC; // don't care IPv4 or IPv6
+                hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+                // get ready to connect
+                status = getaddrinfo(server_addr, server_portnum, &hints, &servinfo);
+                // servinfo now points to a linked list of 1 or more struct addrinfos
+                //create socket and connect
+                s = socket(servinfo->ai_family, servinfo->ai_socktype,
+                           servinfo->ai_protocol);
+                status = connect(s, servinfo->ai_addr, servinfo->ai_addrlen);
+                if (status == -1) {
+                    cerr << "connection to Server failed: " << errno << endl;
+                    return -4; //for now, need to change later
+                }
+                //send request to server
+                /*
+                 char call[]="Hello World";
+                 bytes_sent = send(s, call, 20, 0);
+                 status = recv(s, call, 20, 0);
+                 cerr << "message from server: " << call << endl;*/
+                //prepare the message
+                //calculate the length of message
+                strcpy(type,"EXECUTE");
+                int length = 0;
+                int argnum = 0;
+                while (argTypes[argnum] != 0) argnum++;
+                //msg len+type len+ name len + argsnum;
+                length=4+TYPE_LEN+NAME_LEN+4;
+                //add size of argTypes
+                length+=argnum*sizeof(int);
+                //add size of args
+                int argsize[argnum];
+                for (int i = 0; i < argnum; i++) {
+                    int size = argTypes[i] & 65535;
+                    int argtype = (argTypes[i]>>16) & 255;
+                    if (size < 1) size=1;
+                    argsize[i]=size*argsizebytes(argtype);
+                    length+=argsize[i];
+                }
+                char fncall[length];
+                memset(fncall,0,sizeof(fncall));
+                //compose the message
+                int offset=0;
+                memcpy(&fncall[offset],&length,4);
+                offset+=4;
+                memcpy(&fncall[offset],type,TYPE_LEN);
+                offset+=TYPE_LEN;
+                memcpy(&fncall[offset],name,sizeof(name)+1);
+                offset+=NAME_LEN;
+                memcpy(&fncall[offset],&argnum,sizeof(int));
+                offset+=4;
+                memcpy(&fncall[offset],argTypes,argnum*sizeof(int));
+                offset+=argnum*sizeof(int);
+                for (int i = 0; i < argnum; i++) {
+                    memcpy(&fncall[offset],args[i],argsize[i]);
+                    offset+=argsize[i];
+                }
+                
+                //send the request
+                int bytes_sent = send(s, fncall, length, 0);
+                if (bytes_sent == -1) {
+                    cerr << "Client to Server Failed: Unable to send" << endl;
+                    return -4; //for now, need to change later
+                }
+                //waiting for the reply
+                memset(fncall,0,length);
+                status = recv(s, fncall, length, 0);
+                if (status < 1) {
+                    server_loc.erase(server_loc.begin() + loc_index);
+                    cache_db[search_result] = server_loc;
+                    cerr << "Server is Dead! " << errno << endl;
+                    return -8; //for now, need to change later
+                }
+                else {
+                    cache_server = true;
+                }
+                memcpy(type,&fncall[4],TYPE_LEN);
+                if (strcmp(type,"EXECUTE_SUCCESS") == 0) {
+                    //cerr << "EXECUTE_SUCCESS" << endl;
+                    offset=4+TYPE_LEN+NAME_LEN+4+argnum*sizeof(int);
+                    for (int i = 0; i < argnum; i++) {
+                        if (((argTypes[i]>>ARG_OUTPUT) & 1) == 1) {
+                            memcpy(args[i],&fncall[offset],argsize[i]);
+                            break;
+                        }
+                        offset+=argsize[i];
+                    }
+                } else {
+                    cerr << "EXECUTE_FAILURE" << endl;
+                    int errorcode;
+                    memcpy(&errorcode,&fncall[4+TYPE_LEN],4);
+                    return errorcode;
+                }
+
+            }
+        }
+        else {
+            //open a connection to the binder
+            int status,s,byte_sent;
+            char *addr= getenv("BINDER_ADDRESS");
+            char *port= getenv("BINDER_PORT");
+            char server_addr[ADDRESS_LEN];
+            int server_port;
+            struct addrinfo hints;
+            struct addrinfo *servinfo; // will point to the results
+            memset(&hints, 0, sizeof hints); // make sure the struct is empty
+            hints.ai_family = AF_UNSPEC; // don't care IPv4 or IPv6
+            hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+            // get ready to connect
+            status = getaddrinfo(addr, port, &hints, &servinfo);
+            // servinfo now points to a linked list of 1 or more struct addrinfos
+            //create socket and connect
+            s = socket(servinfo->ai_family, servinfo->ai_socktype,
+                       servinfo->ai_protocol);
+            status = connect(s, servinfo->ai_addr, servinfo->ai_addrlen);
+            if (status == -1) {
+                cerr << "connection to Binder failed: " << errno << endl;
+                return -2; //for now, need to change later
+            }
+            //send LOC_REQUEST to binder
+            //prepare the message
+            char type[TYPE_LEN];
+            strcpy(type,"LOC_CACHEREQUEST");
+            //Assume length: type= 18; server address=40;port=4;name=20
+            int length=4+TYPE_LEN+NAME_LEN+i*sizeof(int);
+            //compose the message
+            /*Message format:
+             length: int
+             type: char[]
+             name: char[]
+             argTypes: int[]
+             */
+            int offset = 0 ;
+            char msg[length];
+            memset(msg,0,sizeof(msg));
+            memcpy(&msg[offset],&length,4);
+            offset+=4;
+            memcpy(&msg[offset],type,TYPE_LEN);
+            offset+=TYPE_LEN;
+            memcpy(&msg[offset],name,NAME_LEN);
+            offset+=NAME_LEN;
+            memcpy(&msg[offset],argTypes,i*sizeof(int));
+            offset+=i*sizeof(int);
+            //send the message to binder
+            int bytes_sent = send(s, msg, length, 0);
+            if (bytes_sent == -1) {
+                cerr << "Client to Binder Failed: Unable to send" << endl;
+                return -2; //for now, need to change later
+            }
+            //check the reply from binder
+            length = 22;
+            char buf[length];
+            memset(buf,0,sizeof(buf));
+            status = recv(s, buf, length, 0);
+            if (status < 1) {
+                cerr << "Binder is Dead! " << errno << endl;
+                return -7; //for now, need to change later
+            }
+            memcpy(&length, buf, 4);
+            char temp[TYPE_LEN];
+            memcpy(temp,&buf[4],TYPE_LEN);
+            char loc_msg[length - 4 - TYPE_LEN];
+            status = recv(s, loc_msg, sizeof(loc_msg), 0);
+            if (status < 1) {
+                cerr << "Binder is Dead! " << errno << endl;
+                return -7; //for now, need to change later
+            }
+            if (strcmp(temp,"LOC_SUCCESS") == 0) {
+                char serverIP[ADDRESS_LEN];
+                int serverPort;
+                int avail_locs = (length - 22)/68;
+                int offset = 0;
+                vector<struct cacheServerInfo> update_loc;
+                for (int j = 0; j < avail_locs; j++) {
+                    memcpy(serverIP, &loc_msg[offset], ADDRESS_LEN);
+                    offset += ADDRESS_LEN;
+                    memcpy(&serverPort, &loc_msg[offset], PORT_LEN);
+                    offset += PORT_LEN;
+                    struct cacheServerInfo tmpInfo;
+                    tmpInfo.create_info(serverIP, serverPort);
+                    update_loc.push_back(tmpInfo);
+                }
+                cache_db[service_key] = update_loc;
+                
+            } else {
+                cache_server = true;
+                int errorcode;
+                memcpy(&errorcode,loc_msg,4);
+                return errorcode; //for now, need to change later
+            }
+            //close client's connection to binder
+            close(s);
+        }
+    }
+    
+
+    return 0;
+}
+
+
 
 /*###################################################################
 int rpcTerminate()

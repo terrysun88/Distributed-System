@@ -27,4 +27,14 @@ struct serverInfo {
     }
 };
 
+struct cacheServerInfo {
+    std::string server_addr;
+    int port;
+    
+    void create_info(std::string addr, int p) {
+        server_addr = addr;
+        port = p;
+    }
+};
+
 #endif

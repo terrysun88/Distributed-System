@@ -194,7 +194,7 @@ void remove_crash_server() {
         char server_status[6];
         send(location.fd, full_msg, sizeof(full_msg), 0);
         int res = recv(location.fd, server_status, 6, 0);
-        if (res == 0) {
+        if (res <= 0) {
             roundRobin_list.erase(roundRobin_list.begin() + i);
             close(location.fd);
             FD_CLR(location.fd, sets);
@@ -362,10 +362,103 @@ void handleLocRequest(int len, int fd) {
             cerr << "Fail to send failure message" << endl;
         }
     }
+    
     close(fd);
     FD_CLR(fd, sets);
     
 }
+
+
+// handle local cache request
+void handleLocCacheRequest(int len, int fd) {
+    bool loc_success = true;
+    try {
+        char msgBuff[len];
+        int args_size = len - 20;
+        int args_num = args_size / 4;
+        int res = recv(fd, msgBuff, sizeof(msgBuff), 0);
+        
+        if (res < 0) {
+            loc_success = false;
+            reasonCode = - 33;
+            throw exception();
+        }
+        // collect client function name from message
+        char funcName[NAME_LEN];
+        memcpy(funcName, msgBuff, sizeof(funcName));
+        
+        // collect args type from message
+        int args[args_num];
+        memcpy(args, &msgBuff[20], args_size);
+        vector<int> args_list;
+        for (int i = 0; i < args_num; i++) {
+            args_list.push_back(args[i]);
+        }
+        // create requesting key by client
+        pair<string, vector<int> > key = create_key(funcName, args_list);
+        
+        remove_crash_server();
+        
+        // figure out if the key exist in procedure_db
+        pair<string, vector<int> > db_key = service_search(key);
+        
+        if (db_key.first == "not_exist") {
+            loc_success = false;
+            reasonCode = -34; // no server register required service
+        }
+        
+        else {
+            vector<struct serverInfo> server_loc = procedure_db[db_key];
+            int server_number = (int)server_loc.size();
+            char success_msg[TYPE_LEN] = "LOC_SUCCESS";
+            int length = 4 + TYPE_LEN + server_number * (ADDRESS_LEN + PORT_LEN);
+            char msg[length];
+            memset(msg, 0, sizeof(msg));
+            memcpy(msg, &length, 4);
+            int offset = 4;
+            memcpy(&msg[offset], success_msg, TYPE_LEN);
+            offset += TYPE_LEN;
+            for (int i = 0; i < server_number; i++) {
+                string hostname = server_loc[i].server_addr;
+                char hostIP[ADDRESS_LEN];
+                strcpy(hostIP, hostname.c_str());
+                int port = server_loc[i].port;
+                memcpy(&msg[offset], hostIP, ADDRESS_LEN);
+                offset += ADDRESS_LEN;
+                memcpy(&msg[offset], &port, PORT_LEN);
+                offset += PORT_LEN;
+            }
+            int status = send(fd, msg, sizeof(msg), 0);
+            if (status < 0) {
+                loc_success = false;
+                cerr << "failed to send response to client" << endl;
+                reasonCode = -3; // error occurs while send response to client
+            }
+        }
+    } catch (exception e) {
+        loc_success = false;
+        if (reasonCode == 0)
+            reasonCode = -2; // error occurs while handle local request
+    }
+   
+    if (!loc_success) {
+        char failure_msg[TYPE_LEN] = "LOC_FAILURE";
+        int length = 4 + TYPE_LEN + 4;
+        char msg[length];
+        memset(msg, 0, sizeof(msg));
+        memcpy(msg, &length, 4);
+        memcpy(&msg[4], failure_msg, TYPE_LEN);
+        memcpy(&msg[22], &reasonCode, 4);
+        int status = send(fd, msg, sizeof(msg), 0);
+        if (status < 0) {
+            cerr << "Fail to send failure message" << endl;
+        }
+    }
+    close(fd);
+    FD_CLR(fd, sets);
+    
+}
+
 
 void terminateRequest() {
     int length = 4 + TYPE_LEN;
@@ -389,6 +482,7 @@ void terminateRequest() {
     
 }
 
+
 int handleAllRequest(int fd) {
     int res = 0;
     char buff[22];
@@ -407,6 +501,8 @@ int handleAllRequest(int fd) {
         server_register(len, fd);
     else if (strcmp(MSG_TYPE, "LOC_REQUEST") == 0)
         handleLocRequest(len, fd);
+    else if (strcmp(MSG_TYPE, "LOC_CACHEREQUEST") == 0)
+        handleLocCacheRequest(len, fd);
     else if (strcmp(MSG_TYPE, "TERMINATE") == 0)
         terminateRequest();
     else {
@@ -484,10 +580,7 @@ int main() {
                     sets = &active_set;
                     ioctl(i, FIONREAD, &nread);
                     
-                    if (nread == 0) {
-                        //do nothing
-                    }
-                    else {
+                    if (nread != 0) {
                         handleAllRequest(i);
                     }
                 }
