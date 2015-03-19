@@ -321,6 +321,7 @@ void handleLocRequest(int len, int fd) {
             char hostIP[ADDRESS_LEN];
             strcpy(hostIP, hostname.c_str());
             int port = location.port;
+            cout << "PORT: " << port << endl;
             char success_msg[TYPE_LEN] = "LOC_SUCCESS";
             
             int length = 4 + TYPE_LEN + ADDRESS_LEN + PORT_LEN;
@@ -410,7 +411,7 @@ void handleLocCacheRequest(int len, int fd) {
         else {
             vector<struct serverInfo> server_loc = procedure_db[db_key];
             int server_number = (int)server_loc.size();
-            char success_msg[TYPE_LEN] = "LOC_SUCCESS";
+            char success_msg[TYPE_LEN] = "LOC_CACHESUCCESS";
             int length = 4 + TYPE_LEN + server_number * (ADDRESS_LEN + PORT_LEN);
             char msg[length];
             memset(msg, 0, sizeof(msg));
@@ -442,7 +443,7 @@ void handleLocCacheRequest(int len, int fd) {
     }
    
     if (!loc_success) {
-        char failure_msg[TYPE_LEN] = "LOC_FAILURE";
+        char failure_msg[TYPE_LEN] = "LOC_CACHEFAILURE";
         int length = 4 + TYPE_LEN + 4;
         char msg[length];
         memset(msg, 0, sizeof(msg));
