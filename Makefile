@@ -1,4 +1,4 @@
-FLAGS=-Wall -g -pthread
+FLAGS= -g -pthread
 all: librpc.a binder 
 librpc.a: rpc.o 
 	ar rcs librpc.a rpc.o
