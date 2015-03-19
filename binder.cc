@@ -321,7 +321,6 @@ void handleLocRequest(int len, int fd) {
             char hostIP[ADDRESS_LEN];
             strcpy(hostIP, hostname.c_str());
             int port = location.port;
-            cout << "PORT: " << port << endl;
             char success_msg[TYPE_LEN] = "LOC_SUCCESS";
             
             int length = 4 + TYPE_LEN + ADDRESS_LEN + PORT_LEN;
