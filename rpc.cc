@@ -112,6 +112,25 @@ pair<string, vector<int> > service_search(pair<string, vector<int> > key) {
 }
 
 
+void clean_service(struct cacheServerInfo loc) {
+    map <pair<string, vector<int> >, vector<struct cacheServerInfo> >::iterator it;
+    for (it = cache_db.begin(); it != cache_db.end(); ++it) {
+        for (int i = 0; i < it->second.size(); i++) {
+            struct cacheServerInfo tmp_loc = it->second[i];
+            if (loc.server_addr == tmp_loc.server_addr && loc.port == tmp_loc.port) {
+                it->second.erase(it->second.begin() + i);
+            }
+            if (it->second.size() == 0) {
+                cache_db.erase(it);
+            }
+            else {
+                cache_db[it->first] = it->second;
+            }
+        }
+    }
+}
+
+
 //******************************************************************************************
 //******************************************************************************************
 
@@ -702,6 +721,7 @@ int rpcCall(char* name, int* argTypes, void** args) {
 int rpcCacheCall(char* name, int* argTypes, void** args) {
     vector<int> key_args;
     bool cache_server = false;
+    bool ask_request = false;
     int i = 0;
     while (argTypes[i] != 0) {
         key_args.push_back(argTypes[i]);
@@ -710,7 +730,7 @@ int rpcCacheCall(char* name, int* argTypes, void** args) {
     while (!cache_server) {
         pair<string, vector<int> > service_key = create_key(name, key_args);
         pair<string, vector<int> > search_result = service_search(service_key);
-        if (search_result.first != "not_exist") {
+        if (search_result.first != "not_exist" && !ask_request) {
             int status,s,byte_sent;
             struct addrinfo hints;
             struct addrinfo *servinfo; // will point to the results
@@ -719,9 +739,14 @@ int rpcCacheCall(char* name, int* argTypes, void** args) {
             char type[TYPE_LEN];
             vector<struct cacheServerInfo> server_loc = cache_db[search_result];
             int loc_size = server_loc.size(), loc_index = 0;
-            while (loc_index < loc_size && !cache_server) {
+            while (true) {
+                server_loc = cache_db[search_result];
+                loc_size = server_loc.size();
+                if (loc_size == 0) {
+                    ask_request = true;
+                    break;
+                }
                 struct cacheServerInfo cur_loc = server_loc[loc_index];
-                loc_index += 1;
                 strcpy(server_addr, cur_loc.server_addr.c_str());
                 server_port = cur_loc.port;
                 char server_portnum[4];
@@ -741,8 +766,8 @@ int rpcCacheCall(char* name, int* argTypes, void** args) {
                            servinfo->ai_protocol);
                 status = connect(s, servinfo->ai_addr, servinfo->ai_addrlen);
                 if (status == -1) {
-                    cerr << "connection to Server failed: " << errno << endl;
-                    return -4; //for now, need to change later
+                    clean_service(server_loc[0]);
+                    continue;
                 }
                 //send request to server
                 /*
@@ -823,10 +848,11 @@ int rpcCacheCall(char* name, int* argTypes, void** args) {
                     memcpy(&errorcode,&fncall[4+TYPE_LEN],4);
                     return errorcode;
                 }
-
+                break;
             }
         }
         else {
+            ask_request = false;
             //open a connection to the binder
             int status,s,byte_sent;
             char *addr= getenv("BINDER_ADDRESS");
@@ -897,7 +923,7 @@ int rpcCacheCall(char* name, int* argTypes, void** args) {
                 cerr << "Binder is Dead! " << errno << endl;
                 return -7; //for now, need to change later
             }
-            if (strcmp(temp,"LOC_SUCCESS") == 0) {
+            if (strcmp(temp,"LOC_CACHESUCCESS") == 0) {
                 char serverIP[ADDRESS_LEN];
                 int serverPort;
                 int avail_locs = (length - 22)/68;
