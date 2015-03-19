@@ -17,6 +17,12 @@
 
 using namespace std;
 
+/*
+Part of my code are taken from examples from Course Source:
+http://beej.us/guide/bgnet/output/html/singlepage/bgnet.html
+http://www.yolinux.com/TUTORIALS/LinuxTutorialPosixThreads.html
+*/
+
 //Declare Global Variables
 uint16_t portnum;
 char hostname[50];
